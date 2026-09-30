@@ -136,6 +136,12 @@ def render(items: list[ProfileItem] | None = None, with_ids: bool = True) -> str
     return "\n".join(lines).strip()
 
 
+def prompt_context() -> str:
+    """The profile block shared by scoring, answers and letters. Byte-identical between calls so
+    the LLM backend can serve it from its prompt cache."""
+    return f"CANDIDATE PROFILE:\n{render(with_ids=False)[:20000]}"
+
+
 def contact() -> dict:
     from ..config import answers
     return answers().get("contact", {})

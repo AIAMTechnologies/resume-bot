@@ -69,3 +69,34 @@ def test_ashby_location_and_sponsorship_rules():
     assert from_rules(Field('Location')) == questions._a('contact.city')
     assert from_rules(Field('Will you require sponsorship?'), 'San Francisco, California') == 'Yes'
     assert from_rules(Field('Are you legally authorized to work in Canada?'), 'San Francisco, California') == 'Yes'
+
+
+def test_work_arrangement_and_eeo_rules_need_the_real_question(monkeypatch):
+    from resumebot import config
+    base = config.answers()
+    monkeypatch.setattr(questions, "answers", lambda: {
+        **base, "logistics": {**base["logistics"], "open_to_remote": "Yes", "open_to_hybrid": "Yes",
+                              "open_to_onsite": "Yes"},
+        "eeo": {**base["eeo"], "race_ethnicity": "Decline to answer"}})
+    assert from_rules(Field("Are you open to remote work?")) == "Yes"
+    assert from_rules(Field("Are you willing to work on-site in Toronto?")) == "Yes"
+    assert from_rules(Field("Race / Ethnicity")) == "Decline to answer"
+    for label in ("Experience with remote access tools?", "Describe your experience with packet tracing",
+                  "Have you worked with hybrid cloud environments?", "Years of experience in Office 365"):
+        assert from_rules(Field(label)) is None, label
+
+
+@pytest.mark.parametrize("label,expected", [
+    ("Location (City)*", "Toronto"), ("Current location", "Toronto"), ("What city do you live in?", "Toronto"),
+    ("Location (city, province)", "Toronto, ON"), ("City and state", "Toronto, ON"), ("Province", "ON"),
+])
+def test_location_question_variants(label, expected):
+    assert from_rules(Field(label)) == expected
+
+
+def test_answer_matches_the_right_city_option():
+    opts = ["Toronto, Ohio, United States", "Toronto, Ontario, Canada", "Vancouver, British Columbia, Canada"]
+    assert closest_option("Toronto", opts) == "Toronto, Ontario, Canada"
+    assert from_rules(Field("Location (City)*", "select", opts)) == "Toronto, Ontario, Canada"
+    assert closest_option("No", ["Yes", "No"]) == "No"
+    assert closest_option("Paris", opts) is None

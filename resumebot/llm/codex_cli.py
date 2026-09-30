@@ -66,7 +66,9 @@ class CodexCLI(LLM):
                 proc.terminate()
             await proc.wait()
 
-    async def complete(self, prompt: str, system: str = '', max_tokens: int = 4000) -> str:
+    async def complete(self, prompt: str, system: str = '', max_tokens: int = 4000, context: str = '') -> str:
+        if context:
+            prompt = f'{context}\n\n{prompt}'
         if not self.path:
             raise LLMError('Codex CLI not found. Install it and run codex login with ChatGPT.')
         async with self._sem:

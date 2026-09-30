@@ -31,6 +31,9 @@ def test_location_rules():
     assert ok("Remote - Canada", True)
     assert ok("Remote (US)", True)
     assert not ok("Remote - Germany", True)
+    assert not ok("Remote - Australia", True)
+    assert not ok("Remote (South Africa)", True)
+    assert not ok("Remote - Russia", True)
     assert not ok("London, UK")
 
 
@@ -53,3 +56,22 @@ def test_us_relocation_filter(monkeypatch):
     for location in ['Austin, TX', 'San Francisco, California', 'New York, NY', 'Chicago, IL']:
         assert matcher.location_ok(Job(title='Security Engineer', location=location))[0]
     assert not matcher.location_ok(Job(title='Security Engineer', location='Paris, France'))[0]
+
+
+def test_linkedin_offsite_job_found_on_company_ats_is_skipped():
+    from resumebot.models import Job
+    job = Job(source="linkedin", external_id="9", company="Acme", title="Security Analyst II", url="u",
+              location="Toronto, ON", apply_url="https://job-boards.greenhouse.io/acme/jobs/1", easy_apply=False)
+    ok, why = matcher.prefilter(job)
+    assert not ok and "company ATS" in why
+
+
+def test_manual_application_counts_once_toward_company_cap():
+    from resumebot import db
+    from resumebot.engine import pipeline, review
+    from resumebot.models import Job, ReviewItem
+    job = db.save(Job(source="external", external_id="cap-1", company="CapCo Inc", title="Analyst", url="u"))
+    item = db.save(ReviewItem(job_id=job.id, kind="manual"))
+    assert pipeline.company_recent_count("CapCo Inc") == 1
+    review.resolve(item.id, "done")
+    assert pipeline.company_recent_count("CapCo Inc") == 1

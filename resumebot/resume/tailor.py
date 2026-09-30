@@ -116,16 +116,14 @@ def _verify(content: dict, items_by_id: dict[int, Any]) -> list[str]:
 async def tailor(job: Job, contact: dict, extra_instruction: str = "") -> TailoredResume:
     items = master.all_items()
     items_by_id = {i.id: i for i in items}
-    prompt = f"""MASTER PROFILE (ids in brackets):
-{master.render(items)}
-
-JOB: {job.title} at {job.company} ({job.location})
+    context = f"MASTER PROFILE (ids in brackets):\n{master.render(items)}"
+    prompt = f"""JOB: {job.title} at {job.company} ({job.location})
 <<<
 {job.description[:15000]}
 >>>
 {extra_instruction}
 {TAILOR_FORMAT}"""
-    content = await complete_json(prompt, system=TAILOR_SYSTEM, max_tokens=8000)
+    content = await complete_json(prompt, system=TAILOR_SYSTEM, max_tokens=8000, context=context)
     dropped = _verify(content, items_by_id)
     keywords = content.get("jd_keywords", [])
 
@@ -197,18 +195,25 @@ async def tailor_with_retry(job: Job, contact: dict) -> TailoredResume:
             "and projects, and use fewer bullets for older roles."))
     if _pages(result) > 2:
         result = _trim_to_fit(result, job, contact)
-    attempts = 0
-    while result.report.keyword_coverage < cfg.min_keyword_coverage and attempts < cfg.retailor_attempts:
+    best, attempts = result, 0
+    while best.report.keyword_coverage < cfg.min_keyword_coverage and attempts < cfg.retailor_attempts:
         attempts += 1
-        supportable = [k for k in result.report.missing if k not in result.unsupported]
+        supportable = [k for k in best.report.missing if k not in best.unsupported]
         if not supportable:
             break
         result = await tailor(job, contact, extra_instruction=(
             "A previous draft missed these job keywords that the master profile CAN support — work "
             f"them in naturally where truthful: {', '.join(supportable)}"))
-    if _pages(result) > 2:
-        result = _trim_to_fit(result, job, contact)
-    return result
+        if _pages(result) > 2:
+            result = _trim_to_fit(result, job, contact)
+        if result.report.keyword_coverage > best.report.keyword_coverage:
+            best = result
+    if best is not result:
+        # Every draft is written to the same files; put the best one back on disk.
+        render.render_pdf(best.content, contact, best.pdf)
+        render.render_docx(best.content, contact, best.docx)
+        best.report = ats.check(best.pdf, best.docx, best.jd_keywords, contact)
+    return best
 
 
 OUTREACH_SYSTEM = """Write a LinkedIn connection note (max 280 characters) from a candidate to the
@@ -220,8 +225,8 @@ profile only."""
 async def outreach_note(job: Job) -> str:
     from ..llm import get_llm
     note = (await get_llm().complete(
-        f"PROFILE:\n{master.render(with_ids=False)[:6000]}\n\nROLE: {job.title} at {job.company}\n"
-        f"{job.description[:3000]}\n\nWrite only the note.", system=OUTREACH_SYSTEM, max_tokens=300)).strip()
+        f"ROLE: {job.title} at {job.company}\n{job.description[:3000]}\n\nWrite only the note.",
+        system=OUTREACH_SYSTEM, max_tokens=300, context=master.prompt_context())).strip()
     return note[:300]
 
 
@@ -235,6 +240,6 @@ async def cover_letter(job: Job, contact: dict) -> str:
     from ..llm import get_llm
     name = " ".join(x for x in [contact.get("first_name"), contact.get("last_name")] if x)
     return (await get_llm().complete(
-        f"CANDIDATE: {name}\nPROFILE:\n{master.render(with_ids=False)}\n\nJOB: {job.title} at "
-        f"{job.company}\n{job.description[:8000]}\n\nWrite the cover letter body only (no address block).",
-        system=COVER_SYSTEM, max_tokens=1200)).strip()
+        f"CANDIDATE: {name}\nJOB: {job.title} at {job.company}\n{job.description[:8000]}\n\n"
+        "Write the cover letter body only (no address block).",
+        system=COVER_SYSTEM, max_tokens=1200, context=master.prompt_context())).strip()

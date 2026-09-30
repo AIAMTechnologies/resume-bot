@@ -32,7 +32,13 @@ Configure company boards in `config/companies.yaml`.
 
 The default LLM backend uses the Claude Code CLI. Authenticate the CLI and configure
 its path/token as needed, or select `LLM_BACKEND=anthropic_api` and provide an API key.
-Set `LLM_MODEL` to a model available to your account.
+Set `LLM_MODEL` to a model available to your account. `LLM_FAST_MODEL` (default
+`claude-haiku-4-5`) handles the high-volume, simple calls: job scoring, short form answers and
+inbox sorting. Leave it blank to use `LLM_MODEL` everywhere. With the API backend, your profile is
+sent as a cached block, so repeat calls within a few minutes bill it at the cached rate.
+
+The CLI backend bills every call against your Claude plan, the same allowance you use in Claude
+Code. To keep the bot from using up your plan, use `LLM_BACKEND=anthropic_api` (pay per call).
 
 Start the dashboard without the application scheduler:
 

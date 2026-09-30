@@ -14,17 +14,23 @@ from ..config import env
 from .base import LLM, LLMError
 
 
+def get_llm(fast: bool = False) -> LLM:
+    """fast=True: the cheaper model (LLM_FAST_MODEL) for high-volume, simple calls."""
+    return _llm(bool(fast))
+
+
 @lru_cache
-def get_llm() -> LLM:
+def _llm(fast: bool) -> LLM:
+    model = (env().llm_fast_model if fast else "") or env().llm_model
     backend = env().llm_backend
     if backend == "codex_cli":
         from .codex_cli import CodexCLI
         return CodexCLI()
     if backend == "anthropic_api":
         from .anthropic_api import AnthropicAPI
-        return AnthropicAPI()
+        return AnthropicAPI(model)
     from .claude_cli import ClaudeCLI
-    primary = ClaudeCLI()
+    primary = ClaudeCLI(model=model)
     if env().llm_fallback == "codex_cli":
         from .codex_cli import CodexCLI
         from .fallback import FallbackLLM
@@ -57,10 +63,11 @@ def parse_json(text: str) -> Any:
         raise LLMError(f"Bad JSON in model reply: {e}: {text[:200]}") from e
 
 
-async def complete_json(prompt: str, system: str = "", max_tokens: int = 4000) -> Any:
-    llm = get_llm()
+async def complete_json(prompt: str, system: str = "", max_tokens: int = 4000, *, context: str = "",
+                        fast: bool = False) -> Any:
+    llm = get_llm(fast=fast)
     reply = await llm.complete(prompt + "\n\nRespond with JSON only, no prose.", system=system,
-                               max_tokens=max_tokens)
+                               max_tokens=max_tokens, context=context)
     return parse_json(reply)
 
 

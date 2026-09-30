@@ -55,7 +55,7 @@ async def manual_review(job: Job, reason: str, resume_pdf: str = "", cover_lette
     if existing:
         return
     item = db.save(ReviewItem(job_id=job.id, kind="manual", context=reason, proposed_answer=outreach))
-    linkedin = job.source == "linkedin"
+    linkedin = job.source == "linkedin" and job.easy_apply
     head = "💼 <b>LinkedIn Easy Apply ready</b>" if linkedin else "🖐 <b>Apply yourself</b>"
     if resume_pdf:
         await telegram.send_document(resume_pdf, f"📄 Tailored resume — {esc(job.title)} @ {esc(job.company)}")

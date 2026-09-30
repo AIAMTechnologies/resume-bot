@@ -71,3 +71,41 @@ def test_master_merge_dedupes():
     assert len(master.all_items()) == before + 1 and len(items) == 1
     assert items[0].bullets == ["Automates applications", "Has a dashboard"]
     assert set(items[0].sources) == {"a", "b"}
+
+
+async def test_keyword_retry_keeps_best_draft_and_fits_two_pages(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from resumebot.resume import tailor as t
+
+    def draft(coverage, pages):
+        report = SimpleNamespace(keyword_coverage=coverage, missing=["Splunk"], score=80)
+        return SimpleNamespace(content={"coverage": coverage}, pdf=tmp_path / "r.pdf", docx=tmp_path / "r.docx",
+                               report=report, unsupported=[], jd_keywords=["Splunk"], pages=pages)
+
+    drafts = iter([draft(0.4, 2), draft(0.3, 3)])  # first draft, then a worse, too-long retry
+
+    async def fake_tailor(job, contact, extra_instruction=""):
+        return next(drafts)
+
+    trimmed = []
+
+    def fake_trim(result, job, contact, max_pages=2):
+        trimmed.append(result.report.keyword_coverage)
+        result.pages = 2
+        return result
+
+    rendered = []
+    monkeypatch.setattr(t, "tailor", fake_tailor)
+    monkeypatch.setattr(t, "_pages", lambda r: r.pages)
+    monkeypatch.setattr(t, "_trim_to_fit", fake_trim)
+    monkeypatch.setattr(t.render, "render_pdf", lambda c, contact, p: rendered.append(c["coverage"]))
+    monkeypatch.setattr(t.render, "render_docx", lambda c, contact, p: None)
+    monkeypatch.setattr(t.ats, "check", lambda *a: SimpleNamespace(keyword_coverage=0.4, missing=[], score=80))
+    monkeypatch.setattr(t, "settings", lambda: SimpleNamespace(
+        ats=SimpleNamespace(min_keyword_coverage=0.7, retailor_attempts=1)))
+
+    result = await t.tailor_with_retry(SimpleNamespace(), {})
+    assert trimmed == [0.3]                       # the 3-page retry was trimmed to fit
+    assert result.content == {"coverage": 0.4}    # but the better first draft is kept...
+    assert rendered == [0.4]                      # ...and written back to disk

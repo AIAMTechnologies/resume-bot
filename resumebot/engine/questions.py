@@ -49,6 +49,7 @@ def _a(path: str) -> str:
 
 # (pattern, answers.yaml path) — first match wins. Order matters.
 RULES: list[tuple[str, str]] = [
+    (r"(location|city).{0,4}(province|state)|city and (province|state)", "__city_region"),
     (r"^(legal )?first name|given name", "contact.first_name"),
     (r"^(legal )?last name|surname|family name", "contact.last_name"),
     (r"preferred (first )?name", "contact.preferred_name"),
@@ -59,7 +60,7 @@ RULES: list[tuple[str, str]] = [
     (r"github", "contact.github"),
     (r"portfolio|personal (web)?site|website", "contact.portfolio"),
     (r"postal|zip", "contact.postal_code"),
-    (r"^city|current city|^location$|location \(city\)", "contact.city"),
+    (r"^city|current city|^(current )?location( city)?$|what city|city of residence|where do you (currently )?(live|reside)", "contact.city"),
     (r"province|\bstate\b", "contact.province_state"),
     (r"^country", "contact.country"),
     (r"sponsor", "__sponsorship"),
@@ -72,13 +73,18 @@ RULES: list[tuple[str, str]] = [
     (r"years of (professional |total )?experience$|total years", "logistics.years_experience_total"),
     (r"highest (level of )?education|degree", "logistics.highest_education"),
     (r"\bgender\b|\bsex\b", "eeo.gender"),
-    (r"race|ethnic", "eeo.race_ethnicity"),
+    (r"\brace\b|ethnic", "eeo.race_ethnicity"),
     (r"veteran", "eeo.veteran_status"),
     (r"disabilit", "eeo.disability"),
     (r"pronoun", "eeo.pronouns"),
-    (r"remote", "logistics.open_to_remote"),
-    (r"hybrid", "logistics.open_to_hybrid"),
-    (r"on-?site|in (the )?office", "logistics.open_to_onsite"),
+    # Work-arrangement questions only — not "experience with remote access / hybrid cloud / Office".
+    (r"(open|willing|comfortable|able) to .{0,20}\bremote|\bremote(ly)? (work|role|position|job)|work(ing)? remotely",
+     "logistics.open_to_remote"),
+    (r"(open|willing|comfortable|able) to .{0,20}\bhybrid|\bhybrid (work|role|position|job|schedule|model|arrangement)",
+     "logistics.open_to_hybrid"),
+    (r"(open|willing|comfortable|able) to .{0,30}(\bon ?site|in (the )?office)|"
+     r"\bon ?site (work|role|position|job)|(work|commute|come) (in|into|to) (the |our )?office",
+     "logistics.open_to_onsite"),
 ]
 
 
@@ -87,6 +93,8 @@ def _special(key: str, question: str, job_location: str) -> str:
     us = is_us_location(question) or is_us_location(job_location)
     if re.search(r"\bcanada\b", question, re.I):
         us = False
+    if key == "__city_region":
+        return ", ".join(x for x in [_a("contact.city"), _a("contact.province_state")] if x)
     if key == "__full_name":
         return " ".join(x for x in [_a("contact.first_name"), _a("contact.last_name")] if x)
     if key == "__sponsorship":
@@ -112,8 +120,33 @@ def closest_option(answer: str, options: list[str]) -> str | None:
         for o in options:
             if re.search(r"decline|prefer not|don.t wish|not to (say|answer|disclose)", o, re.I):
                 return o
+    contained = _containing_option(answer, options)
+    if contained:
+        return contained
     m = difflib.get_close_matches(answer, options, n=1, cutoff=0.6)
     return m[0] if m else None
+
+
+PROVINCES = {"ON": "Ontario", "BC": "British Columbia", "AB": "Alberta", "QC": "Quebec", "MB": "Manitoba",
+             "SK": "Saskatchewan", "NS": "Nova Scotia", "NB": "New Brunswick", "NL": "Newfoundland",
+             "PE": "Prince Edward Island"}
+
+
+def _containing_option(answer: str, options: list[str]) -> str | None:
+    """'Toronto' -> 'Toronto, Ontario, Canada' (not 'Toronto, Ohio, United States').
+
+    Picks options containing the answer as whole words; ties go to the option that also
+    mentions your province/state or country from answers.yaml.
+    """
+    key = norm_q(answer)
+    if len(key) < 3 or key in ("yes", "no"):
+        return None
+    hits = [o for o in options if re.search(rf"\b{re.escape(key)}\b", norm_q(o))]
+    if not hits:
+        return None
+    region = _a("contact.province_state")
+    context = [norm_q(x) for x in (region, PROVINCES.get(region.upper(), ""), _a("contact.country")) if x]
+    return max(hits, key=lambda o: (sum(f" {c} " in f" {norm_q(o)} " for c in context), -len(o)))
 
 
 def from_rules(f: Field, job_location: str = "") -> str | None:
@@ -167,10 +200,7 @@ in their profile and standard answers. You are careful and honest.
 
 async def from_llm(f: Field, job_title: str, company: str, description: str) -> tuple[str, bool, float]:
     std = {k: v for k, v in answers().items() if k != "eeo"}
-    result = await complete_json(f"""CANDIDATE PROFILE:
-{master.render(with_ids=False)}
-
-STANDARD ANSWERS: {std}
+    result = await complete_json(f"""STANDARD ANSWERS: {std}
 
 JOB: {job_title} at {company}
 {description[:4000]}
@@ -180,7 +210,8 @@ FIELD TYPE: {f.kind}
 OPTIONS: {f.options or 'free text'}
 
 Return {{"answer": "...", "grounded": true|false, "confidence": 0.0-1.0, "reason": "short"}}""",
-        system=ANSWER_SYSTEM, max_tokens=800)
+        system=ANSWER_SYSTEM, max_tokens=800, context=master.prompt_context(),
+        fast=f.kind != "textarea")  # written answers are read by people; use the main model
     return str(result.get("answer", "")), bool(result.get("grounded")), float(result.get("confidence", 0))
 
 

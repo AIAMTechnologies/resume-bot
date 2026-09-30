@@ -107,7 +107,8 @@ async def classify(subject: str, body: str) -> tuple[str, str]:
     # Ambiguous (e.g. "thanks for applying — we'll reach out to schedule an interview if…"): ask the model.
     result = await complete_json(
         f"Classify this recruiting email.\nSUBJECT: {subject}\nBODY: {body[:3000]}\n"
-        'Return {"status": "confirmed|rejected|assessment|interview|offer|other", "summary": "one line"}')
+        'Return {"status": "confirmed|rejected|assessment|interview|offer|other", "summary": "one line"}',
+        fast=True)
     status = result.get("status", "other")
     return (status if status in RANK else "other"), result.get("summary", "")
 
