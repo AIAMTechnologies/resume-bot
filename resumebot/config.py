@@ -24,6 +24,8 @@ class Env(BaseSettings):
     claude_code_oauth_token: str = ""  # from `claude setup-token`; lets the bot use your plan headlessly
     anthropic_api_key: str = ""
     llm_model: str = "claude-sonnet-5-5"          # resumes, cover letters, written answers
+    # Scores decide what gets submitted automatically, so they use the main model by default.
+    score_with_fast_model: bool = False
     llm_fast_model: str = "claude-haiku-4-5"      # job scoring, short answers, inbox sorting; blank = llm_model
     llm_fallback: str = ""
     codex_cli_path: str = ""

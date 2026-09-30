@@ -75,3 +75,16 @@ def test_manual_application_counts_once_toward_company_cap():
     assert pipeline.company_recent_count("CapCo Inc") == 1
     review.resolve(item.id, "done")
     assert pipeline.company_recent_count("CapCo Inc") == 1
+
+
+def test_remote_jobs_tied_to_other_countries_are_rejected():
+    def ok(loc):
+        return matcher.location_ok(Job(source="x", external_id="1", company="c", title="t", url="u",
+                                       location=loc, remote=True))[0]
+    assert not ok("London, UK")
+    assert not ok("Bengaluru, India")
+    assert ok("Remote (United States | Canada)")
+    assert ok("Ontario - Remote")
+    assert ok("San Francisco")
+    assert ok("US - Remote")
+    assert ok("Remote")

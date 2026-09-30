@@ -61,4 +61,10 @@ async def test_callers_pick_the_right_model(monkeypatch):
     await matcher.score(Job(source="x", external_id="1", company="c", title="t", url="u"))
     await questions.from_llm(Field("Years of Splunk experience?", "text"), "t", "c", "d")
     await questions.from_llm(Field("Why do you want to work here?", "textarea"), "t", "c", "d")
-    assert [(fast, ctx) for _, fast, ctx in seen] == [(True, True), (True, True), (False, True)]
+    # Scoring uses the main model by default (it decides what gets submitted); short answers use fast.
+    assert [(fast, ctx) for _, fast, ctx in seen] == [(False, True), (True, True), (False, True)]
+    from types import SimpleNamespace
+    monkeypatch.setattr(matcher, "env", lambda: SimpleNamespace(score_with_fast_model=True))
+    seen.clear()
+    await matcher.score(Job(source="x", external_id="1", company="c", title="t", url="u"))
+    assert seen[0][1] is True  # SCORE_WITH_FAST_MODEL=true opts back into the cheaper model

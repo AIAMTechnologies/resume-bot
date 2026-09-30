@@ -100,3 +100,9 @@ def test_answer_matches_the_right_city_option():
     assert from_rules(Field("Location (City)*", "select", opts)) == "Toronto, Ontario, Canada"
     assert closest_option("No", ["Yes", "No"]) == "No"
     assert closest_option("Paris", opts) is None
+
+
+@pytest.mark.parametrize("label", ["Where are you currently located?", "Where are you based?",
+                                   "Where are you located?"])
+def test_where_located_questions(label):
+    assert from_rules(Field(label)) == "Toronto, ON"

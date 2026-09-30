@@ -7,7 +7,7 @@ from datetime import timedelta
 from sqlmodel import select
 
 from .. import db
-from ..config import settings
+from ..config import env, settings
 from ..llm import complete_json
 from ..models import Job, JobStatus, utcnow
 from ..profile import master
@@ -24,6 +24,16 @@ def dedupe_key(company: str, title: str) -> str:
     return f"{norm(company)}|{norm(title)}"
 
 
+def _place_allowed(place: str, loc) -> bool:
+    low = place.lower()
+    if any(city.split(",")[0].lower() in low for city in loc.cities):
+        return True
+    if "united states" in [c.lower() for c in loc.countries] and is_us_location(place):
+        return True
+    return any(c.lower() in low for c in loc.countries) or bool(
+        re.search(r"\b(canada|ontario|quebec|british columbia|alberta|north america|\bon\b)", low))
+
+
 def location_ok(job: Job) -> tuple[bool, str]:
     loc = settings().targets.locations
     text = f"{job.location} {job.title}"
@@ -36,6 +46,13 @@ def location_ok(job: Job) -> tuple[bool, str]:
         if restricted and regions and not any(re.search(rf"\b{re.escape(r)}\b", where)
                                               for r in regions + ["us", "usa", "ca"]):
             return False, f"remote restricted to {restricted.group(1).strip()}"
+        # "Remote" attached to a specific place (e.g. "London, UK" + remote flag) is usually
+        # remote within that country — only accept places you can work from.
+        place = re.sub(r"\b(remote|hybrid|anywhere|worldwide|work from home|distributed)\b|[-–(),|·/]", " ",
+                       job.location or "", flags=re.I).strip()
+        if place and not (_place_allowed(place, loc) or any(re.search(rf"\b{re.escape(r)}\b", place, re.I)
+                                                           for r in loc.remote_regions)):
+            return False, f"remote but based in {job.location}"
         return True, "remote"
     low = (job.location or "").lower()
     if not low:
@@ -100,7 +117,7 @@ async def score(job: Job) -> tuple[int, list[str], list[str]]:
 
 Return {{"score": 0-100, "reasons": ["up to 4 short reasons"], "missing": ["must-have requirements the candidate lacks"],
  "hard_blocker": "empty or e.g. 'requires US citizenship / security clearance / 10+ yrs'"}}""",
-        system=SCORE_SYSTEM, max_tokens=800, context=master.prompt_context(), fast=True)
+        system=SCORE_SYSTEM, max_tokens=800, context=master.prompt_context(), fast=env().score_with_fast_model)
     s = int(result.get("score", 0))
     reasons = list(result.get("reasons", []))
     if result.get("hard_blocker"):

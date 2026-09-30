@@ -61,6 +61,7 @@ RULES: list[tuple[str, str]] = [
     (r"portfolio|personal (web)?site|website", "contact.portfolio"),
     (r"postal|zip", "contact.postal_code"),
     (r"^city|current city|^(current )?location( city)?$|what city|city of residence|where do you (currently )?(live|reside)", "contact.city"),
+    (r"where are you (currently )?(located|based)|^(current )?location of residence|where (are you|do you) (currently )?(located|based|live)", "__city_region"),
     (r"province|\bstate\b", "contact.province_state"),
     (r"^country", "contact.country"),
     (r"sponsor", "__sponsorship"),

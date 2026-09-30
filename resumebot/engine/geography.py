@@ -6,8 +6,16 @@ US_STATES = dict(zip(
     'Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming|District of Columbia'.split('|'), strict=True))
 
 
+US_CITIES = ("San Francisco", "New York", "NYC", "Seattle", "Austin", "Boston", "Chicago", "Los Angeles",
+             "Denver", "Atlanta", "Dallas", "Houston", "Miami", "Washington, D.C.", "Palo Alto", "Mountain View",
+             "San Jose", "Sunnyvale", "San Diego", "Portland", "Philadelphia", "Phoenix", "Salt Lake City",
+             "Pittsburgh", "Minneapolis", "Raleigh", "Nashville", "Bay Area")
+
+
 def is_us_location(location: str) -> bool:
     if re.search(r'\b(United States|USA|US)\b|\bU\.S\.(?:A\.)?', location, re.I):
+        return True
+    if any(re.search(rf"\b{re.escape(city)}\b", location, re.I) for city in US_CITIES):
         return True
     # Require a city/state separator to avoid e.g. Georgia (the country).
     states = '|'.join([*US_STATES, *US_STATES.values()])
