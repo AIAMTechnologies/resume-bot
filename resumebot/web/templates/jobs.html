@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Jobs <span class="muted small">({{ jobs|length }} shown)</span></h1>
+<form class="filters" method="get">
+  <select name="status"><option value="">All statuses</option>{% for s in statuses %}<option {{ 'selected' if f.status == s }}>{{ s }}</option>{% endfor %}</select>
+  <select name="source"><option value="">All sources</option>{% for s in sources() %}<option {{ 'selected' if f.source == s }}>{{ s }}</option>{% endfor %}<option {{ 'selected' if f.source == 'external' }}>external</option></select>
+  <button class="btn">Filter</button>
+</form>
+<div class="card">
+<table>
+  <tr><th>Found</th><th>Role</th><th>Company</th><th>Location</th><th>Source</th><th class="num">Score</th><th>Status</th><th></th></tr>
+  {% for j in jobs %}
+  <tr id="j{{ j.id }}">
+    <td class="small muted">{{ j.discovered_at|local }}</td>
+    <td><a href="{{ j.url }}" target="_blank" rel="noopener">{{ j.title }}</a>
+      {% if j.match_reasons %}<div class="small muted" title="{{ j.match_reasons|join(' · ') }}">{{ j.match_reasons[0]|truncate(110) }}</div>{% endif %}</td>
+    <td>{{ j.company }}</td>
+    <td class="small">{{ j.location }}{% if j.remote %} · remote{% endif %}</td>
+    <td><span class="pill"><span class="dot" style="background: var(--s-{{ j.source }})"></span>{{ j.source }}</span></td>
+    <td class="num">{{ j.match_score if j.match_score is not none else '' }}</td>
+    <td><span class="st-{{ j.status }}">{{ j.status }}</span><div class="small muted">{{ j.status_reason[:70] }}</div></td>
+    <td style="white-space:nowrap">
+      {% if j.status in ['skipped','review','failed','new'] %}<form class="inline" method="post" action="/jobs/{{ j.id }}/queue"><button class="btn sm">Queue</button></form>{% endif %}
+      {% if j.status in ['queued','review','new'] %}<form class="inline" method="post" action="/jobs/{{ j.id }}/skip"><button class="btn sm">Skip</button></form>{% endif %}
+      {% if j.status in ['queued','failed'] and j.source not in ['workday','external'] %}
+        <form class="inline" method="post" action="/jobs/{{ j.id }}/dry-run"><button class="btn sm" title="Fill the form in the browser but don't submit">Dry run</button></form>
+      {% endif %}
+    </td>
+  </tr>
+  {% else %}<tr><td colspan="8" class="empty">No jobs yet. Discovery runs automatically once the bot is started.</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

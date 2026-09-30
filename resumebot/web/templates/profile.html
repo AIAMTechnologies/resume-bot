@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Master profile</h1>
+<div class="grid g3">
+  <div class="card">
+    <h2>Master list <span class="muted small">({{ items|length }} items, {{ skills|length }} skills)</span></h2>
+    <p class="small muted">Everything the bot may say about you. Resumes are tailored only from this. Hide anything you don't want used.</p>
+    {% set kinds = ['summary','experience','project','education','certification','achievement','skill'] %}
+    {% for k in kinds %}{% set group = items|selectattr('kind', 'equalto', k)|list %}{% if group %}
+      <h3 style="margin-top:18px;text-transform:capitalize">{{ k }}{{ 's' if k != 'summary' }} ({{ group|length }})</h3>
+      {% for it in group %}
+      <div class="item {{ 'hidden' if it.hidden }}">
+        <div style="display:flex;justify-content:space-between;gap:10px">
+          <div><b>{{ it.title }}</b>{% if it.organization %} — {{ it.organization }}{% endif %}
+            <span class="small muted">{{ it.start }}{% if it.start or it.end %} – {% endif %}{{ it.end }}{% if it.location %} · {{ it.location }}{% endif %}</span>
+            {% if it.url %}<a class="small" href="{{ it.url }}" target="_blank" rel="noopener">link ↗</a>{% endif %}</div>
+          <form class="inline" method="post" action="/profile/items/{{ it.id }}/toggle"><button class="btn sm">{{ 'Show' if it.hidden else 'Hide' }}</button></form>
+        </div>
+        {% if it.bullets %}<ul class="small">{% for b in it.bullets %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
+        {% if it.skills %}<div class="tags" style="margin-top:6px">{% for s in it.skills %}<span class="pill">{{ s }}</span>{% endfor %}</div>{% endif %}
+        <div class="small muted" style="margin-top:4px">from: {{ it.sources|join(', ') }}</div>
+      </div>
+      {% endfor %}
+    {% endif %}{% else %}{% endfor %}
+    {% if not items %}<div class="empty">Empty — upload resumes and projects on the right.</div>{% endif %}
+  </div>
+
+  <div class="grid" style="align-content:start">
+    <div class="card">
+      <h2>Add sources</h2>
+      <form method="post" action="/profile/upload" enctype="multipart/form-data" id="upForm">
+        <label class="drop" id="drop" style="display:block;cursor:pointer">
+          <b>Drop files here</b> or click to choose<br>
+          <span class="small">Resumes (PDF/DOCX), docs, project .zip files, or your Claude export .zip</span>
+          <input type="file" name="files" multiple hidden id="fileIn" accept=".pdf,.docx,.txt,.md,.zip">
+        </label>
+      </form>
+      <form method="post" action="/profile/folder" style="margin-top:12px" class="filters">
+        <input type="text" name="path" placeholder="~/Documents/Projects" style="flex:1" aria-label="Local folder path">
+        <button class="btn">Scan folder</button>
+      </form>
+      <form method="post" action="/profile/github" class="filters">
+        <input type="text" name="username" placeholder="GitHub username" value="{{ github }}" style="flex:1" aria-label="GitHub username">
+        <button class="btn">Import repos</button>
+      </form>
+      <p class="small muted">Claude chats: claude.ai → Settings → Privacy → Export data, then drop the zip above.</p>
+    </div>
+
+    <div class="card">
+      <h2>Target titles</h2>
+      {% if seniority %}<p class="small muted">Inferred seniority: {{ seniority }}</p>{% endif %}
+      <form method="post" action="/profile/titles">
+        <textarea name="titles" rows="8" placeholder="One title per line">{{ titles|join('\n') }}</textarea>
+        <div style="display:flex;gap:6px;margin-top:8px"><button class="btn primary">Save titles</button></div>
+      </form>
+      <form method="post" action="/profile/infer-titles" style="margin-top:6px"><button class="btn sm">Re-infer from profile</button></form>
+      {% if inferred and inferred != titles %}<p class="small muted">Last inferred: {{ inferred|join(', ') }}</p>{% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Ingested</h2>
+      <table>
+        {% for d in docs %}
+        <tr><td class="small">{{ d.name }}<div class="muted">{{ d.kind }}</div></td>
+          <td class="small {{ 'st-failed' if d.status == 'failed' else 'st-applied' if d.status == 'ingested' else '' }}">{{ d.status }}{% if d.error %}<div>{{ d.error[:100] }}</div>{% endif %}</td>
+          <td class="num small">+{{ d.items_added }}</td></tr>
+        {% else %}<tr><td class="empty">Nothing ingested yet.</td></tr>{% endfor %}
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const drop = document.getElementById('drop'), fileIn = document.getElementById('fileIn'), form = document.getElementById('upForm');
+fileIn.addEventListener('change', () => fileIn.files.length && form.submit());
+['dragenter', 'dragover'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', ev => { fileIn.files = ev.dataTransfer.files; form.submit(); });
+</script>
+{% endblock %}

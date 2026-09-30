@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "resumebot"
+version = "0.1.0"
+description = "Local-first autonomous job application agent with dashboard and Telegram control"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "jinja2>=3.1",
+  "python-multipart>=0.0.9",
+  "sqlmodel>=0.0.47",
+  "pydantic>=2.8",
+  "pydantic-settings>=2.4",
+  "pyyaml>=6.0",
+  "httpx>=0.27",
+  "playwright>=1.47",
+  "pypdf>=5.0",
+  "python-docx>=1.1",
+  "reportlab>=4.2",
+  "beautifulsoup4>=4.12",
+  "anthropic>=0.40",
+  "typer>=0.12",
+  "rich>=13.7",
+  "google-auth>=2.30",
+  "google-auth-oauthlib>=1.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[project.scripts]
+resumebot = "resumebot.__main__:app"
+
+[tool.setuptools.packages.find]
+include = ["resumebot*"]
+
+[tool.setuptools.package-data]
+resumebot = ["web/templates/*.html", "web/static/*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

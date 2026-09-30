@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Review queue <span class="muted small">({{ items|length }})</span></h1>
+<p class="muted small">Borderline matches, questions the bot couldn't answer from your profile, and applications you need to finish yourself. Everything here is also sent to Telegram.</p>
+<div class="grid">
+{% for i in items %}{% set j = jobs.get(i.job_id) %}
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;gap:12px">
+      <div>
+        <span class="pill">{{ {'job': '🤔 Borderline match', 'question': '❓ Question', 'manual': '🖐 Manual apply'}[i.kind] }}</span>
+        <span class="small muted">#{{ i.id }} · {{ i.created_at|local }}</span>
+        {% if j %}<h2 style="margin:8px 0 4px"><a href="{{ j.apply_url or j.url }}" target="_blank" rel="noopener">{{ j.title }}</a> — {{ j.company }}</h2>
+        <div class="small muted">{{ j.location }} · {{ j.source }}{% if j.match_score is not none %} · score {{ j.match_score }}{% endif %}</div>{% endif %}
+      </div>
+    </div>
+    {% if i.kind == 'question' %}
+      <p style="margin:12px 0 6px"><b>{{ i.question }}</b></p>
+      {% if i.context %}<p class="small muted">Options: {{ i.context }}</p>{% endif %}
+      <form method="post" action="/review/{{ i.id }}">
+        <input type="hidden" name="action" value="answer">
+        {% if i.context %}
+          <select name="answer">{% for o in i.context.split(' | ') %}<option {{ 'selected' if o == i.proposed_answer }}>{{ o }}</option>{% endfor %}</select>
+        {% else %}
+          <textarea name="answer" rows="3" placeholder="Your answer (saved and reused for similar questions)">{{ i.proposed_answer }}</textarea>
+        {% endif %}
+        <div style="margin-top:8px"><button class="btn primary">Save answer</button></div>
+      </form>
+      <form method="post" action="/review/{{ i.id }}" style="margin-top:6px"><input type="hidden" name="action" value="skip"><button class="btn sm danger">Skip this job</button></form>
+    {% else %}
+      <p class="small">{{ i.context }}</p>
+      {% if j and j.match_reasons %}<ul class="small">{% for r in j.match_reasons %}<li>{{ r }}</li>{% endfor %}</ul>{% endif %}
+      {% if j and j.missing_skills %}<p class="small"><b>Gaps:</b> {{ j.missing_skills|join(', ') }}</p>{% endif %}
+      <div style="display:flex;gap:6px">
+        {% if i.kind == 'job' %}
+          <form method="post" action="/review/{{ i.id }}"><input type="hidden" name="action" value="approve"><button class="btn primary">Apply</button></form>
+        {% else %}
+          <form method="post" action="/review/{{ i.id }}"><input type="hidden" name="action" value="done"><button class="btn primary">I applied</button></form>
+        {% endif %}
+        <form method="post" action="/review/{{ i.id }}"><input type="hidden" name="action" value="skip"><button class="btn">Skip</button></form>
+      </div>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="card empty">Nothing needs you right now. 🎉</div>
+{% endfor %}
+</div>
+{% endblock %}

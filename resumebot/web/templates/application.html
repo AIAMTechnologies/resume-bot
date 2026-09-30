@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="small"><a href="/applications">← Applications</a></p>
+<h1>{{ a.title }} — {{ a.company }}</h1>
+<div class="grid g3">
+  <div class="grid" style="align-content:start">
+    <div class="card">
+      <div class="kpis" style="margin:0">
+        <div class="kpi"><div class="v st-{{ a.status }}">{{ a.status }}</div><div class="l">Status</div></div>
+        <div class="kpi"><div class="v">{{ job.match_score if job else '–' }}</div><div class="l">Match score</div></div>
+        <div class="kpi"><div class="v">{{ a.ats_score or '–' }}</div><div class="l">ATS score</div></div>
+        <div class="kpi"><div class="v">{{ '%d%%'|format(100 * a.keyword_coverage) if a.keyword_coverage is not none else '–' }}</div><div class="l">Keyword coverage</div></div>
+        <div class="kpi"><div class="v">{{ '%.0fs'|format(a.duration_seconds) if a.duration_seconds else '–' }}</div><div class="l">Time on form</div></div>
+      </div>
+      {% if a.error %}<p class="st-failed">{{ a.error }}</p>{% endif %}
+      {% if a.response_summary %}<p><b>Latest reply:</b> {{ a.response_summary }} <span class="muted small">{{ a.last_response_at|local }}</span></p>{% endif %}
+      <form method="post" action="/applications/{{ a.id }}/status" class="filters" style="margin:10px 0 0">
+        <span class="small muted">Set status:</span>
+        <select name="status">{% for s in ['submitted','confirmed','rejected','assessment','interview','offer','ghosted'] %}<option {{ 'selected' if a.status == s }}>{{ s }}</option>{% endfor %}</select>
+        <button class="btn sm">Save</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Answers submitted</h2>
+      <table>
+        {% for q, v in a.answers.items() %}
+        <tr><td style="width:45%">{{ q }}</td><td>{{ v.answer if v is mapping else v }}</td><td class="small muted">{{ v.origin if v is mapping else '' }}</td></tr>
+        {% else %}<tr><td class="empty">No form answers recorded.</td></tr>{% endfor %}
+      </table>
+    </div>
+    {% if a.cover_letter %}<div class="card"><h2>Cover letter</h2><div style="white-space:pre-wrap">{{ a.cover_letter }}</div></div>{% endif %}
+    {% if job %}<div class="card"><h2>Job description</h2>
+      <p class="small">{{ job.location }} · {{ job.salary }} · <a href="{{ job.url }}" target="_blank" rel="noopener">Original posting ↗</a></p>
+      {% if job.match_reasons %}<ul>{% for r in job.match_reasons %}<li>{{ r }}</li>{% endfor %}</ul>{% endif %}
+      {% if job.missing_skills %}<p class="small"><b>Gaps:</b> {{ job.missing_skills|join(', ') }}</p>{% endif %}
+      <details><summary class="muted">Full description</summary><div style="white-space:pre-wrap" class="small">{{ job.description }}</div></details>
+    </div>{% endif %}
+  </div>
+  <div class="grid" style="align-content:start">
+    <div class="card">
+      <h2>Files</h2>
+      {% if a.resume_pdf %}<p><a href="/file?path={{ a.resume_pdf|urlencode }}" target="_blank">Resume (PDF)</a> · <a href="/file?path={{ a.resume_docx|urlencode }}">DOCX</a></p>{% endif %}
+      {% if a.screenshot %}<a href="/file?path={{ a.screenshot|urlencode }}" target="_blank"><img src="/file?path={{ a.screenshot|urlencode }}" alt="Screenshot at end of application" style="width:100%;border-radius:8px;border:1px solid var(--border)"></a>{% endif %}
+    </div>
+    <div class="card">
+      <h2>Timeline</h2>
+      {% for e in events %}<div class="ev"><span class="t">{{ e.ts|local("%b %d %H:%M") }}</span><span class="lvl-{{ e.level }}"></span><span>{{ e.message }}</span></div>{% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

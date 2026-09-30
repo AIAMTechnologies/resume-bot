@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Applications <span class="muted small">({{ apps|length }})</span></h1>
+<form class="filters" method="get">
+  <input type="search" name="q" placeholder="Company or title" value="{{ f.q }}">
+  <select name="source"><option value="">All sources</option>
+    {% for s in sources() %}<option {{ 'selected' if f.source == s }}>{{ s }}</option>{% endfor %}</select>
+  <select name="status"><option value="">All statuses</option>
+    {% for s in ['submitted','confirmed','rejected','assessment','interview','offer','ghosted','failed'] %}<option {{ 'selected' if f.status == s }}>{{ s }}</option>{% endfor %}</select>
+  <button class="btn">Filter</button>
+</form>
+<div class="card">
+<table>
+  <tr><th>Submitted</th><th>Role</th><th>Company</th><th>Location</th><th>Source</th><th class="num">Match</th><th class="num">ATS</th><th class="num">Keywords</th><th>Status</th><th>Reply</th></tr>
+  {% for a in apps %}{% set j = jobs.get(a.job_id) %}
+  <tr>
+    <td class="small muted">{{ (a.submitted_at or a.started_at)|local }}</td>
+    <td><a href="/applications/{{ a.id }}">{{ a.title }}</a>{% if a.error %}<div class="small st-failed">{{ a.error[:90] }}</div>{% endif %}</td>
+    <td>{{ a.company }}</td>
+    <td class="small">{{ j.location if j else '' }}{% if j and j.remote %} · remote{% endif %}</td>
+    <td><span class="pill"><span class="dot" style="background: var(--s-{{ a.source }})"></span>{{ a.source }}</span></td>
+    <td class="num">{{ j.match_score if j else '' }}</td>
+    <td class="num">{{ a.ats_score or '' }}</td>
+    <td class="num">{{ '%d%%'|format(100 * a.keyword_coverage) if a.keyword_coverage is not none else '' }}</td>
+    <td class="st-{{ a.status }}">{{ a.status }}</td>
+    <td class="small">{{ a.response_summary[:60] }}</td>
+  </tr>
+  {% else %}<tr><td colspan="10" class="empty">No applications match.</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

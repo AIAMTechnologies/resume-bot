@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+  <h1 style="margin:0">Overview</h1>
+  <div>
+    <form class="inline" method="post" action="/control/pause/all"><button class="btn">⏸ Pause all</button></form>
+    <form class="inline" method="post" action="/control/resume/all"><button class="btn">▶ Resume all</button></form>
+  </div>
+</div>
+
+<div class="kpis" hx-get="/partials/kpis" hx-trigger="every {{ refresh() }}s" hx-swap="innerHTML">
+  {% include "_kpis.html" %}
+</div>
+
+<div class="grid g3">
+  <div class="grid">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <h2>Applications per day, by source</h2>
+        <select id="days" aria-label="Date range">
+          <option value="14">Last 14 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option>
+        </select>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div class="chart-wrap"><canvas id="daily" aria-label="Applications per day stacked by source" role="img"></canvas></div>
+      <details class="small" style="margin-top:8px"><summary class="muted">Table view</summary><div id="dailyTable"></div></details>
+    </div>
+
+    <div class="grid g2">
+      <div class="card funnel">
+        <h2>Funnel</h2>
+        {% set top = (funnel[0].n or 1) %}
+        {% for f in funnel %}
+        <div class="row">
+          <span class="small">{{ f.stage }}</span>
+          <div class="bar" style="width: {{ [100 * f.n / top, 0.5]|max }}%" title="{{ f.stage }}: {{ f.n }}"></div>
+          <span class="num small" style="text-align:right">{{ f.n }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="card">
+        <h2>By source</h2>
+        <table>
+          <tr><th>Source</th><th class="num">Applied</th><th class="num">Failed</th><th class="num">Replies</th><th class="num">Interviews</th></tr>
+          {% for r in by_source %}
+          <tr><td><span class="dot" style="background: var(--s-{{ r.source }})"></span> {{ r.source }}</td>
+            <td class="num">{{ r.applied }}</td><td class="num">{{ r.failed }}</td><td class="num">{{ r.responses }}</td><td class="num">{{ r.interviews }}</td></tr>
+          {% else %}<tr><td colspan="5" class="empty">No applications yet.</td></tr>{% endfor %}
+        </table>
+        <h3 style="margin-top:16px">Top reasons jobs were skipped</h3>
+        {% for reason, n in skips %}<div class="small" style="display:flex;justify-content:space-between"><span>{{ reason }}</span><span class="muted">{{ n }}</span></div>
+        {% else %}<div class="small muted">—</div>{% endfor %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between"><h2>Latest applications</h2><a href="/applications" class="small">All →</a></div>
+      <table>
+        <tr><th>When</th><th>Role</th><th>Company</th><th>Source</th><th>Status</th><th class="num">ATS</th></tr>
+        {% for a in recent %}
+        <tr>
+          <td class="small muted">{{ (a.submitted_at or a.started_at)|local }}</td>
+          <td><a href="/applications/{{ a.id }}">{{ a.title }}</a></td>
+          <td>{{ a.company }}</td>
+          <td><span class="pill"><span class="dot" style="background: var(--s-{{ a.source }})"></span>{{ a.source }}</span></td>
+          <td class="st-{{ a.status }}">{{ a.status }}</td>
+          <td class="num">{{ a.ats_score or '' }}</td>
+        </tr>
+        {% else %}<tr><td colspan="6" class="empty">Nothing yet — add your resumes under Master profile to get started.</td></tr>{% endfor %}
+      </table>
+    </div>
+  </div>
+
+  <div class="grid" style="align-content:start">
+    <div class="card">
+      <h2>Sources</h2>
+      <div class="health" hx-get="/partials/health" hx-trigger="every {{ refresh() }}s" hx-swap="innerHTML">
+        {% include "_health.html" %}
+      </div>
+    </div>
+    <div class="card">
+      <h2>Live activity</h2>
+      <div class="feed" hx-get="/partials/feed" hx-trigger="load, every {{ refresh() }}s" hx-swap="innerHTML"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let chart;
+async function draw() {
+  const days = document.getElementById('days').value;
+  const data = await (await fetch('/api/charts?days=' + days)).json();
+  const d = data.daily;
+  const labels = d.labels.map(x => x.slice(5));
+  const datasets = Object.entries(d.series).map(([src, vals]) => ({
+    label: src, data: vals, backgroundColor: css('--s-' + src) || css('--muted'),
+    borderColor: css('--surface'), borderWidth: {top: 2, left: 0, right: 0, bottom: 0},
+    borderRadius: 4, borderSkipped: 'bottom', maxBarThickness: 22,
+  }));
+  document.getElementById('legend').innerHTML = datasets.map(ds =>
+    `<span><span class="dot" style="background:${ds.backgroundColor}"></span>${ds.label}</span>`).join('');
+  const rows = d.labels.map((l, i) => `<tr><td>${l}</td>${datasets.map(ds => `<td class="num">${ds.data[i]}</td>`).join('')}</tr>`).join('');
+  document.getElementById('dailyTable').innerHTML =
+    `<table><tr><th>Date</th>${datasets.map(ds => `<th class="num">${ds.label}</th>`).join('')}</tr>${rows}</table>`;
+  const grid = css('--grid'), muted = css('--muted');
+  const cfg = {
+    type: 'bar', data: {labels, datasets},
+    options: {
+      maintainAspectRatio: false, animation: false,
+      interaction: {mode: 'index', intersect: false},
+      plugins: {legend: {display: false}, tooltip: {filter: i => i.raw > 0}},
+      scales: {
+        x: {stacked: true, grid: {display: false}, ticks: {color: muted, maxRotation: 0, autoSkip: true, maxTicksLimit: 10}, border: {color: css('--axis')}},
+        y: {stacked: true, beginAtZero: true, grid: {color: grid}, border: {display: false}, ticks: {color: muted, precision: 0}},
+      },
+    },
+  };
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('daily'), cfg);
+}
+document.getElementById('days').addEventListener('change', draw);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw);
+draw();
+setInterval(draw, 60000);
+</script>
+{% endblock %}

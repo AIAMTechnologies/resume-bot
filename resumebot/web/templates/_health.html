@@ -1,0 +1,21 @@
+{% for h in health %}
+<div class="src">
+  <div><span class="dot" style="background: var(--s-{{ h.name }})"></span> <b>{{ h.name }}</b>
+    <div class="small muted">{% if h.mode == 'manual' %}manual mode{% else %}found {{ h.last_discover }}{% endif %}</div></div>
+  <div>
+    <div class="small" style="display:flex;justify-content:space-between">
+      <span>{% if h.paused %}<span class="st-review">⏸ {{ h.reason }}</span>{% elif h.status == 'ready' %}<span class="st-applied">● ready</span>{% else %}{{ h.status }}{% endif %}{% if h.next %} <span class="muted">→ {{ h.next }}</span>{% endif %}</span>
+      <span class="muted">{{ h.today }}/{{ h.cap }}</span>
+    </div>
+    <div class="meter"><span style="width: {{ (100 * h.today / h.cap) if h.cap else 0 }}%; background: var(--s-{{ h.name }})"></span></div>
+  </div>
+  <div>
+    {% if h.paused %}
+      <form class="inline" method="post" action="/control/resume/{{ h.name }}"><button class="btn sm">Resume</button></form>
+    {% else %}
+      <form class="inline" method="post" action="/control/pause/{{ h.name }}"><button class="btn sm">Pause</button></form>
+    {% endif %}
+    <form class="inline" method="post" action="/control/discover/{{ h.name }}"><button class="btn sm" title="Search for new jobs now">Find</button></form>
+  </div>
+</div>
+{% endfor %}

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Resume Bot</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+</head>
+<body>
+<div class="layout">
+  <nav class="side">
+    <div class="brand">🤖 Resume Bot</div>
+    <a href="/" class="{{ 'on' if active == 'overview' }}">Overview</a>
+    <a href="/applications" class="{{ 'on' if active in ('applications', 'application') }}">Applications</a>
+    <a href="/jobs" class="{{ 'on' if active == 'jobs' }}">Jobs</a>
+    <a href="/review" class="{{ 'on' if active == 'review' }}">Review {% if pending_count %}<span class="badge">{{ pending_count }}</span>{% endif %}</a>
+    <a href="/profile" class="{{ 'on' if active == 'profile' }}">Master profile</a>
+    <a href="/settings" class="{{ 'on' if active == 'settings' }}">Settings</a>
+  </nav>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

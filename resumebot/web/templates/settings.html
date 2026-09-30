@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Settings</h1>
+<div class="card" style="margin-bottom:14px">
+  <h2>Connections</h2>
+  <table>{% for k, v in checks.items() %}<tr><td style="width:180px">{{ k }}</td><td class="{{ 'st-failed' if 'not ' in v or 'NOT' in v else '' }}">{{ v }}</td></tr>{% endfor %}</table>
+  <p class="small muted">Secrets live in <code>.env</code>. Behaviour lives in <code>config/*.yaml</code> — edit those files, then restart the bot (<code>resumebot run</code>).</p>
+</div>
+<div class="grid g2">
+{% for name, text in files.items() %}
+  <div class="card"><h2>config/{{ name }}</h2><pre class="cfg">{{ text }}</pre></div>
+{% endfor %}
+</div>
+{% endblock %}

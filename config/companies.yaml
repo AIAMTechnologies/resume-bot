@@ -1,0 +1,24 @@
+# Company job boards polled directly through their public APIs (no login, very low ban risk).
+# Slug = the part of the board URL:
+#   greenhouse: https://boards.greenhouse.io/<slug>  or job-boards.greenhouse.io/<slug>
+#   lever:      https://jobs.lever.co/<slug>
+#   ashby:      https://jobs.ashbyhq.com/<slug>
+# Bad slugs are logged on the dashboard and skipped. Jobs rerouted from LinkedIn/Indeed to these
+# ATSs are handled automatically even if the company isn't listed here.
+
+greenhouse:
+  - faire
+  - stripe
+  - databricks
+  - figma
+lever:
+  - plaid
+ashby:
+  - wealthsimple
+  - cohere
+  - koho
+  - 1password
+  - openai
+  - ramp
+  - linear
+  - notion

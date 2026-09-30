@@ -1,0 +1,9 @@
+{% for e in events %}
+<div class="ev">
+  <span class="t">{{ e.ts|local("%a %H:%M") }}</span>
+  <span class="lvl-{{ e.level }}"></span>
+  <span>{% if e.source %}<span class="pill"><span class="dot" style="background: var(--s-{{ e.source }})"></span>{{ e.source }}</span> {% endif %}{{ e.message }}{% if e.job_id %} <a class="small" href="/jobs?#j{{ e.job_id }}">#{{ e.job_id }}</a>{% endif %}</span>
+</div>
+{% else %}
+<div class="empty">No activity yet.</div>
+{% endfor %}

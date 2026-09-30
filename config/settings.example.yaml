@@ -1,0 +1,124 @@
+# Copied to config/settings.yaml by `resumebot init`. Edit that copy.
+
+timezone: America/Toronto
+
+targets:
+  # Leave empty to use titles inferred from your master profile (editable on the dashboard).
+  titles: []
+  locations:
+    remote: true
+    remote_regions: ["Canada", "United States", "North America", "Worldwide"]
+    cities: ["Toronto, ON", "Mississauga, ON", "Waterloo, ON"]
+    countries: ["Canada", "United States"]
+  employment_types: ["full_time", "contract"]
+  # Titles containing any of these are always scored by the AI (it judges fit better than titles do).
+  title_keywords: [security, cyber, soc, incident, threat, iam, identity, grc, siem, dfir, infosec,
+                   detection, vulnerability, risk, automation]
+  exclude_title_keywords: ["intern", "principal", "director", "vp "]
+  exclude_companies: []
+  min_salary_cad: null
+
+matching:
+  auto_apply_score: 75     # >= this: apply automatically
+  review_score: 60         # between review_score and auto_apply_score: review queue
+  max_job_age_days: 21
+  max_apps_per_company_90d: 2   # applications (incl. prepared LinkedIn cards) per company per 90 days
+
+ats:
+  min_keyword_coverage: 0.55   # share of JD keywords present in tailored resume
+  retailor_attempts: 1
+  include_cover_letter: when_optional   # always | when_optional | only_when_required
+
+# One-browser-at-a-time global pacing plus per-source profiles.
+pacing:
+  global_daily_cap: 60
+  sources:
+    linkedin:
+      # ACCOUNT-SAFE: the bot never signs in to LinkedIn. It reads public job pages, applies to
+      # company-site jobs on their own ATS, and sends Easy Apply jobs to Telegram fully prepared
+      # (tailored PDF, cover letter, outreach note) for you to submit. daily_cap = cards per day.
+      enabled: true
+      mode: assist
+      daily_cap: 12
+      weekend_cap: 4
+      active_hours: [8, 21]
+      min_gap_seconds: 600
+      max_gap_seconds: 1800
+      session_minutes: [60, 120]
+      break_minutes: [30, 90]
+      browse_only_ratio: 0.0
+      challenge_cooldown_hours: 24
+      discover_every_hours: 8
+    indeed:
+      enabled: true
+      daily_cap: 20
+      weekend_cap: 5
+      active_hours: [8, 20]
+      min_gap_seconds: 120
+      max_gap_seconds: 420
+      session_minutes: [30, 60]
+      break_minutes: [15, 45]
+      browse_only_ratio: 0.2
+      challenge_cooldown_hours: 24
+      discover_every_hours: 6
+    greenhouse:
+      enabled: true
+      daily_cap: 25
+      weekend_cap: 10
+      active_hours: [7, 22]
+      min_gap_seconds: 45
+      max_gap_seconds: 180
+      session_minutes: [45, 90]
+      break_minutes: [10, 30]
+      browse_only_ratio: 0.0
+      challenge_cooldown_hours: 6
+      discover_every_hours: 4
+    lever:
+      enabled: true
+      daily_cap: 25
+      weekend_cap: 10
+      active_hours: [7, 22]
+      min_gap_seconds: 45
+      max_gap_seconds: 180
+      session_minutes: [45, 90]
+      break_minutes: [10, 30]
+      browse_only_ratio: 0.0
+      challenge_cooldown_hours: 6
+      discover_every_hours: 4
+    ashby:
+      enabled: true
+      daily_cap: 25
+      weekend_cap: 10
+      active_hours: [7, 22]
+      min_gap_seconds: 45
+      max_gap_seconds: 180
+      session_minutes: [45, 90]
+      break_minutes: [10, 30]
+      browse_only_ratio: 0.0
+      challenge_cooldown_hours: 6
+      discover_every_hours: 4
+    workday:
+      enabled: true
+      # Workday needs an account per company; phase 1 routes these to the manual queue.
+      mode: manual
+      daily_cap: 0
+      weekend_cap: 0
+      active_hours: [9, 18]
+      min_gap_seconds: 300
+      max_gap_seconds: 900
+      session_minutes: [20, 40]
+      break_minutes: [20, 60]
+      browse_only_ratio: 0.0
+      challenge_cooldown_hours: 24
+      discover_every_hours: 12
+
+human:
+  typo_rate: 0.02          # chance per word of a typo + correction in free-text fields
+  wpm: [45, 75]            # typing speed range
+  reading_wpm: [220, 320]  # used to time how long a job description is "read"
+
+inbox:
+  poll_minutes: 15
+
+dashboard:
+  refresh_seconds: 10

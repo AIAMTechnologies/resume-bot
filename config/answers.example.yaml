@@ -1,0 +1,55 @@
+# Standard application answers. Copied to config/answers.yaml by `resumebot init`.
+# The bot uses these verbatim. Anything it can't answer from here, your master profile,
+# or previously approved answers goes to the review queue — it never guesses facts.
+
+contact:
+  first_name: ""
+  last_name: ""
+  preferred_name: ""
+  email: ""            # your dedicated application Gmail
+  phone: ""
+  city: "Toronto"
+  province_state: "ON"
+  country: "Canada"
+  postal_code: ""
+  linkedin: ""
+  github: ""
+  portfolio: ""
+
+work_authorization:
+  canada: "Yes"                    # legally authorized to work in Canada?
+  united_states: "No"              # legally authorized to work in the US?
+  requires_sponsorship_canada: "No"
+  requires_sponsorship_us: "Yes"
+  willing_to_relocate: "Yes"
+
+logistics:
+  notice_period: "2 weeks"
+  earliest_start: "2 weeks from offer"
+  desired_salary_cad: ""           # e.g. "110000"
+  desired_salary_usd: ""
+  desired_hourly_contract_cad: ""
+  open_to_remote: "Yes"
+  open_to_hybrid: "Yes"
+  open_to_onsite: "Yes"
+  years_experience_total: ""
+  highest_education: ""
+
+# Many forms have a required checkbox like "I consent to the processing of my data per the
+# privacy policy" or "I certify this information is accurate". true = the bot ticks these for
+# you; false = each one goes to the review queue for you to decide.
+application_consent: false
+
+# Voluntary self-identification. "Decline to answer" is used wherever offered.
+eeo:
+  gender: "Decline to answer"
+  race_ethnicity: "Decline to answer"
+  veteran_status: "Decline to answer"
+  disability: "Decline to answer"
+  pronouns: ""
+
+# Free-form question → answer pairs you want reused. Matched fuzzily.
+custom:
+  "How did you hear about us?": "Job board"
+  "Are you over 18?": "Yes"
+  "Do you have a valid driver's license?": ""
