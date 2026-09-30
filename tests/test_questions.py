@@ -106,3 +106,14 @@ def test_answer_matches_the_right_city_option():
                                    "Where are you located?"])
 def test_where_located_questions(label):
     assert from_rules(Field(label)) == "Toronto, ON"
+
+
+def test_hispanic_question_and_clean_linkedin(monkeypatch):
+    from resumebot import config
+    base = config.answers()
+    monkeypatch.setattr(questions, "answers", lambda: {**base, "contact": {**base["contact"],
+                        "linkedin": "https://www.linkedin.com/in/ada/?isSelfProfile=true"},
+                        "eeo": {**base["eeo"], "race_ethnicity": "Decline to answer"}})
+    assert from_rules(Field("LinkedIn Profile")) == "https://www.linkedin.com/in/ada/"
+    assert from_rules(Field("Are you Hispanic/Latino?", "select", ["Yes", "No", "Decline To Self Identify"])) \
+        == "Decline To Self Identify"

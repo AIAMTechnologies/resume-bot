@@ -74,7 +74,7 @@ RULES: list[tuple[str, str]] = [
     (r"years of (professional |total )?experience$|total years", "logistics.years_experience_total"),
     (r"highest (level of )?education|degree", "logistics.highest_education"),
     (r"\bgender\b|\bsex\b", "eeo.gender"),
-    (r"\brace\b|ethnic", "eeo.race_ethnicity"),
+    (r"\brace\b|ethnic|hispanic|latin[oa]x?", "eeo.race_ethnicity"),
     (r"veteran", "eeo.veteran_status"),
     (r"disabilit", "eeo.disability"),
     (r"pronoun", "eeo.pronouns"),
@@ -150,11 +150,17 @@ def _containing_option(answer: str, options: list[str]) -> str | None:
     return max(hits, key=lambda o: (sum(f" {c} " in f" {norm_q(o)} " for c in context), -len(o)))
 
 
+def _clean_url(value: str) -> str:
+    """Drop tracking/query strings from profile URLs (e.g. LinkedIn's ?isSelfProfile=true)."""
+    return value.split("?")[0] if value.startswith(("http://", "https://")) and "linkedin.com" in value else value
+
+
 def from_rules(f: Field, job_location: str = "") -> str | None:
     q = norm_q(f.label)
     for pattern, key in RULES:
         if re.search(pattern, q):
             val = _special(key, f.label, job_location) if key.startswith("__") else _a(key)
+            val = _clean_url(val)
             if val:
                 return closest_option(val, f.options or [])
             return None

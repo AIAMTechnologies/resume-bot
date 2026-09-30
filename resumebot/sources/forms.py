@@ -238,14 +238,17 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
         if AUTOFILL_RE.search(label):
             continue  # the bot fills every field itself; resume parsers inject wrong values
         role = _file_role(label, f.get("name", ""), f.get("selector", ""))
-        loc = ctx.page.locator(f'[data-rb-id="{f["id"]}"]')
+        loc = _locator(ctx, f)
         if role == "resume":
             await ctx.human.upload(loc, str(ctx.materials.resume_pdf))
             filled[label] = ctx.materials.resume_pdf.name
         elif role == "cover" and ctx.materials.cover_letter_pdf:
             await ctx.human.upload(loc, str(ctx.materials.cover_letter_pdf))
             filled[label] = ctx.materials.cover_letter_pdf.name
-        await loc.evaluate("el => el.setAttribute('data-rb-done', '1')")
+        try:  # many sites swap the upload box for a filename chip after uploading
+            await loc.evaluate("el => el.setAttribute('data-rb-done', '1')", timeout=2000)
+        except Exception:  # noqa: BLE001
+            pass
     if files:
         await _settle(ctx)
 
