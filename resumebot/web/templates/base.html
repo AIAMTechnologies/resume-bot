@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Resume Bot</title>
   <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/diagnostics.js"></script>
   <script src="https://unpkg.com/htmx.org@2.0.3"></script>
 </head>
 <body>
@@ -17,8 +18,10 @@
     <a href="/review" class="{{ 'on' if active == 'review' }}">Review {% if pending_count %}<span class="badge">{{ pending_count }}</span>{% endif %}</a>
     <a href="/profile" class="{{ 'on' if active == 'profile' }}">Master profile</a>
     <a href="/settings" class="{{ 'on' if active == 'settings' }}">Settings</a>
+    <a href="/errors" class="{{ 'on' if active == 'errors' }}">Error log</a>
   </nav>
   <main>
+    <div id="dashboard-error-banner" class="card" role="alert" hidden>Something went wrong in this page. <a href="/errors">Open the error log</a> for details.</div>
     <p class="small muted">{{ 'Automatic scheduler on' if automatic else 'Manual mode — preview and apply to individual jobs; queued jobs wait for automatic mode' }} · Telegram {{ 'connected' if telegram_connected else 'offline / not configured' }}</p>
     {% block content %}{% endblock %}
   </main>

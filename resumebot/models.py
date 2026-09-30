@@ -174,3 +174,17 @@ class KV(SQLModel, table=True):
 
     key: str = Field(primary_key=True)
     value: Any = Field(default=None, sa_column=Column(JSON))
+
+
+class Diagnostic(SQLModel, table=True):
+    """Redacted diagnostics linked to the originating dashboard request."""
+    id: str = Field(primary_key=True)
+    ts: datetime = Field(default_factory=utcnow, index=True)
+    level: str = Field(default='info', index=True)
+    kind: str = Field(default='', index=True)
+    message: str
+    request_id: str = Field(default='', index=True)
+    method: str = ''
+    path: str = ''
+    job_id: Optional[int] = Field(default=None, index=True)
+    traceback: str = ''

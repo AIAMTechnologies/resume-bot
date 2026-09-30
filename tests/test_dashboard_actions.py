@@ -43,7 +43,8 @@ async def test_dashboard_preview_and_exact_submission(client, job, prepared, mon
             assert (await client.get(route)).status_code == 200
         response = await client.post(f'/jobs/{job.id}/preview')
         assert response.status_code == 303
-        await actions._tasks[job.id]
+        if task := actions._tasks.get(job.id):
+            await task
         draft = drafts.get(job.id)
         html = (await client.get(response.headers['location'])).text
         assert 'Exact resume for this application' in html
@@ -65,7 +66,8 @@ async def test_dashboard_preview_and_exact_submission(client, job, prepared, mon
         monkeypatch.setattr(pipeline.SOURCES['greenhouse'], 'apply', submit)
         response = await client.post(f'/jobs/{job.id}/apply-now', data={'version': draft['version']})
         assert response.status_code == 303
-        await actions._tasks[job.id]
+        if task := actions._tasks.get(job.id):
+            await task
         assert seen == [b'%PDF-1.4 exact preview']
         assert (await client.post(f'/jobs/{job.id}/apply-now', data={'version': draft['version']})).status_code == 409
         with db.session() as s:

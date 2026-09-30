@@ -27,6 +27,9 @@ templates.env.filters["local"] = lambda dt, fmt="%b %d %H:%M": to_local(dt).strf
 templates.env.globals["refresh"] = lambda: settings().dashboard.refresh_seconds
 templates.env.globals["sources"] = lambda: list(settings().pacing.sources)
 
+from .errors import install as install_diagnostics
+install_diagnostics(app, templates)
+
 _bg: set[asyncio.Task] = set()
 
 

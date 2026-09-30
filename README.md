@@ -104,3 +104,18 @@ paid-credit opt-out, the fallback conservatively refuses to run if a paid-credit
 balance exists, allowance is unknown, or either usage window is at least 95% used.
 It does not purchase credits or redeem reset credits. Usage is shared with your
 other Codex sessions. Claude is retried after a 15-minute cooldown.
+
+## Dashboard error log
+
+Open **Error log** in the sidebar (`/errors`) to inspect errors and warnings, filter
+by job or request ID, and download matching entries. Select **All activity** to see
+an action arrive, its HTTP result, and related background activity. Failed requests
+show a request ID and a link to their diagnostic details. Browser JavaScript,
+resource-loading, and HTMX failures are captured too (up to 20 reports per page load).
+
+Detailed tracebacks are available under **Technical details**. A rotating backup log
+is written to `data/logs/diagnostics.jsonl` (5 MB per file, three backups), including
+when diagnostic database writes fail. Request bodies, headers, and traceback locals
+are not logged; configured credentials and common token patterns are redacted.
+Logs stay local under the Git-ignored `data/` directory. Capture begins when this
+version starts; older activity remains in the overview feed.

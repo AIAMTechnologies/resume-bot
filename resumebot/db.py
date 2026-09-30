@@ -37,6 +37,11 @@ def session() -> Iterator[Session]:
 
 def log(message: str, *, level: str = "info", source: str = "", kind: str = "system",
         job_id: int | None = None) -> None:
+    import sys
+    from . import diagnostics
+    message = diagnostics.redact(message)
+    diagnostics.record(message, level=level, kind=kind, job_id=job_id,
+                       error=sys.exception() if level in ("error", "warning") else None)
     with session() as s:
         s.add(models.Event(message=message, level=level, source=source, kind=kind, job_id=job_id))
         s.commit()

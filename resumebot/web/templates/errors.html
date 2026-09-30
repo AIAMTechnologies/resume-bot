@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Error log</h1>
+<p class="muted">Failed dashboard requests, background tasks, Telegram and browser errors. New entries appear when you refresh. Up to 300 entries shown.</p>
+<form class="filters" method="get">
+<select name="level" aria-label="Severity">{% for value, label in [('problems','Errors & warnings'),('error','Errors'),('warning','Warnings'),('all','All activity')] %}<option value="{{ value }}" {{ 'selected' if level == value }}>{{ label }}</option>{% endfor %}</select>
+<input name="q" value="{{ q }}" placeholder="Search messages" aria-label="Search messages">
+<input name="job_id" type="number" value="{{ job_id if job_id is not none else '' }}" placeholder="Job ID" aria-label="Job ID">
+<input name="request_id" value="{{ request_id }}" placeholder="Request ID" aria-label="Request ID">
+<button class="btn primary">Filter / refresh</button>
+<a class="btn" href="/errors">Reset filters</a>
+</form>
+<p><a href="/errors/export?level={{ level|urlencode }}&amp;request_id={{ request_id|urlencode }}&amp;q={{ q|urlencode }}{% if job_id is not none %}&amp;job_id={{ job_id }}{% endif %}">Download these entries</a> · Local file: <code>data/logs/diagnostics.jsonl</code></p>
+{% for entry in entries %}
+<div class="card" style="margin-bottom:12px">
+<div class="small muted">{{ entry.ts|local('%b %d %H:%M:%S') }} · {{ entry.level|upper }} · {{ entry.kind }} · {{ entry.id }}</div>
+<p style="white-space:pre-wrap;overflow-wrap:anywhere">{{ entry.message }}</p>
+{% if entry.method %}<p class="small"><code>{{ entry.method }} {{ entry.path }}</code></p>{% endif %}
+{% if entry.job_id %}<a href="/jobs/{{ entry.job_id }}/preview">Job #{{ entry.job_id }}</a>{% endif %}
+{% if entry.request_id %}<a class="small" href="/errors?level=all&amp;request_id={{ entry.request_id }}">Trace request {{ entry.request_id }}</a>{% endif %}
+{% if entry.traceback %}<details><summary>Technical details</summary><pre class="cfg" style="white-space:pre-wrap;overflow-wrap:anywhere">{{ entry.traceback }}</pre></details>{% endif %}
+</div>
+{% else %}<div class="card empty">No matching log entries. Try the dashboard action, then refresh this page.</div>{% endfor %}
+<script>
+document.querySelector('form.filters').addEventListener('submit', function () {
+  for (const field of this.querySelectorAll('input')) if (!field.value) field.disabled = true;
+});
+</script>
+{% endblock %}
