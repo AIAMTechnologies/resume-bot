@@ -10,6 +10,7 @@ targets:
     remote_regions: ["Canada", "United States", "North America", "Worldwide"]
     cities: ["Toronto, ON", "Mississauga, ON", "Waterloo, ON"]
     countries: ["Canada", "United States"]
+    preferred_regions: []  # Optional state/city labels to screen first among similar roles.
   employment_types: ["full_time", "contract"]
   # Titles containing any of these are always scored by the AI (it judges fit better than titles do).
   title_keywords: [security, cyber, soc, incident, threat, iam, identity, grc, siem, dfir, infosec,

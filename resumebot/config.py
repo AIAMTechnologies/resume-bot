@@ -66,6 +66,7 @@ class Locations(BaseModel):
     remote_regions: list[str] = Field(default_factory=list)
     cities: list[str] = Field(default_factory=list)
     countries: list[str] = Field(default_factory=list)
+    preferred_regions: list[str] = Field(default_factory=list)
 
 
 class Targets(BaseModel):

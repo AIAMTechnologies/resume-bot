@@ -82,9 +82,12 @@ async def triage_new(limit: int = 25) -> None:
     keywords = settings().targets.title_keywords
     priority = case(*[(Job.title.ilike(f"%{word}%"), rank) for rank, word in enumerate(keywords)],
                     else_=len(keywords)) if keywords else Job.discovered_at
+    regions = settings().targets.locations.preferred_regions
+    regional_priority = case(*[(Job.location.ilike(f"%{region}%"), 0) for region in regions],
+                             else_=1) if regions else priority
     with db.session() as s:
         new_jobs = list(s.exec(select(Job).where(Job.status == JobStatus.NEW)
-                              .order_by(priority, Job.discovered_at).limit(limit)))
+                              .order_by(priority, regional_priority, Job.discovered_at).limit(limit)))
     from . import runtime
     for index, job in enumerate(new_jobs, 1):
         runtime.update("triage", message=f"Checking {index}/{len(new_jobs)}: #{job.id} {job.title} @ {job.company}", job_id=job.id)

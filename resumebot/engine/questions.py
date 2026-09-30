@@ -83,16 +83,8 @@ RULES: list[tuple[str, str]] = [
 
 
 def _special(key: str, question: str, job_location: str) -> str:
-    # ATS locations often omit the country (e.g. San Francisco, California).
-    us = bool(re.search(r"\b(us|u\.s\.|united states|usa|america)\b", question.lower() + " " + job_location.lower()))
-    if not re.search(r"\bcanada\b", question, re.I):
-        us = us or bool(re.search(
-            r",\s*(alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|"
-            r"hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|"
-            r"michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|"
-            r"new mexico|new york|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|"
-            r"rhode island|south carolina|south dakota|tennessee|texas|utah|vermont|virginia|washington|"
-            r"west virginia|wisconsin|wyoming|district of columbia)\s*$", job_location, re.I))
+    from .geography import is_us_location
+    us = is_us_location(question) or is_us_location(job_location)
     if re.search(r"\bcanada\b", question, re.I):
         us = False
     if key == "__full_name":

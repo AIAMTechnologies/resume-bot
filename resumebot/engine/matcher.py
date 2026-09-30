@@ -13,6 +13,7 @@ from ..models import Job, JobStatus, utcnow
 from ..profile import master
 from ..profile.ingest import target_titles
 from ..profile.master import norm
+from .geography import is_us_location
 
 ACTIVE_STATUSES = [JobStatus.QUEUED, JobStatus.APPLYING, JobStatus.APPLIED, JobStatus.REVIEW, JobStatus.MANUAL]
 REMOTE_RE = re.compile(r"\bremote\b|anywhere|work from home|distributed", re.I)
@@ -40,6 +41,8 @@ def location_ok(job: Job) -> tuple[bool, str]:
     for city in loc.cities:
         if city.split(",")[0].lower() in low:
             return True, f"city {city}"
+    if "united states" in [c.lower() for c in loc.countries] and is_us_location(job.location or ""):
+        return True, "United States relocation accepted"
     if any(c.lower() in low for c in loc.countries) or re.search(r"\b(canada|ontario|, on\b)", low):
         return True, "country match"
     return False, f"location {job.location}"

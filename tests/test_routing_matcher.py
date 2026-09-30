@@ -32,3 +32,24 @@ def test_location_rules():
     assert ok("Remote (US)", True)
     assert not ok("Remote - Germany", True)
     assert not ok("London, UK")
+
+
+def test_us_locations_without_country():
+    from resumebot.engine.geography import is_us_location
+    assert is_us_location('San Francisco, California')
+    assert is_us_location('Austin, TX')
+    assert is_us_location('New York, NY')
+    assert not is_us_location('Toronto, ON')
+    assert not is_us_location('Tbilisi, Georgia country')
+    assert not is_us_location('Georgia')
+
+
+def test_us_relocation_filter(monkeypatch):
+    from types import SimpleNamespace
+    from resumebot.engine import matcher
+    from resumebot.models import Job
+    loc = SimpleNamespace(remote=True, remote_regions=[], cities=[], countries=['United States'])
+    monkeypatch.setattr(matcher, 'settings', lambda: SimpleNamespace(targets=SimpleNamespace(locations=loc)))
+    for location in ['Austin, TX', 'San Francisco, California', 'New York, NY', 'Chicago, IL']:
+        assert matcher.location_ok(Job(title='Security Engineer', location=location))[0]
+    assert not matcher.location_ok(Job(title='Security Engineer', location='Paris, France'))[0]
