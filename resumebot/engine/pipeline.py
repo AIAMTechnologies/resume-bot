@@ -223,12 +223,38 @@ def _reroute(job: Job, url: str) -> Job | None:
     return db.save(new)
 
 
-async def apply_job(job: Job, dry_run: bool = False) -> Application | None:
+async def apply_job(job: Job, dry_run: bool = False, draft_version: str | None = None) -> Application | None:
+    from sqlalchemy import update
+    from . import drafts
+    # Claim in SQLite, so repeated clicks and scheduler races cannot submit twice.
+    if draft_version is not None:
+        drafts.load(job.id, draft_version)
+    with db.session() as s:
+        claimed = s.execute(update(Job).where(Job.id == job.id,
+            Job.status.notin_([JobStatus.APPLYING, JobStatus.APPLIED])).values(
+                status=JobStatus.APPLYING, updated_at=utcnow()))
+        s.commit()
+        if not claimed.rowcount:
+            raise ValueError('This job is already applying or has been submitted.')
+    try:
+        return await _apply_job(job, dry_run, draft_version)
+    except BaseException:
+        with db.session() as s:
+            current = s.get(Job, job.id)
+            if current and current.status == JobStatus.APPLYING:
+                current.status, current.status_reason = JobStatus.REVIEW, 'Application interrupted; check before retrying'
+                s.add(current)
+                s.commit()
+        raise
+
+
+async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None = None) -> Application | None:
+    from . import drafts
     src = SOURCES[job.source]
     job.status, job.updated_at = JobStatus.APPLYING, utcnow()
     db.save(job)
     try:
-        materials, tr = await prepare(job)
+        materials, tr = drafts.load(job.id, draft_version) if draft_version else await drafts.prepare(job)
     except Exception as e:  # noqa: BLE001
         job.status, job.status_reason = JobStatus.FAILED, f"tailoring failed: {e}"[:300]
         db.save(job)
@@ -278,7 +304,7 @@ async def apply_job(job: Job, dry_run: bool = False) -> Application | None:
                             f"match {job.match_score}, ATS {app.ats_score})")
         else:
             app.error = result.note
-            job.status = JobStatus.QUEUED if dry_run else JobStatus.FAILED
+            job.status = JobStatus.REVIEW if dry_run else JobStatus.FAILED
             job.status_reason = result.note
             db.log(f"Not submitted: {job.title} @ {job.company} — {result.note}",
                    level="info" if dry_run else "warning", source=job.source, kind="apply", job_id=job.id)

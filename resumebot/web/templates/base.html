@@ -19,6 +19,7 @@
     <a href="/settings" class="{{ 'on' if active == 'settings' }}">Settings</a>
   </nav>
   <main>
+    <p class="small muted">{{ 'Automatic scheduler on' if automatic else 'Manual mode — preview and apply to individual jobs; queued jobs wait for automatic mode' }} · Telegram {{ 'connected' if telegram_connected else 'offline / not configured' }}</p>
     {% block content %}{% endblock %}
   </main>
 </div>

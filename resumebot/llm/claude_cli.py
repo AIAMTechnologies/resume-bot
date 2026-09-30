@@ -68,13 +68,15 @@ class ClaudeCLI(LLM):
                 out, err = await asyncio.wait_for(proc.communicate(prompt.encode()), self.timeout)
             except asyncio.TimeoutError:
                 proc.kill()
+                await proc.wait()
                 raise LLMError("claude CLI timed out")
-        if proc.returncode != 0:
-            raise LLMError(f"claude CLI failed ({proc.returncode}): {err.decode()[:500] or out.decode()[:500]}")
         try:
             payload = json.loads(out.decode())
         except json.JSONDecodeError:
+            if proc.returncode != 0:
+                raise LLMError(f"claude CLI failed ({proc.returncode}): {err.decode()[:500] or out.decode()[:500]}")
             return out.decode()
-        if payload.get("is_error"):
-            raise LLMError(f"claude CLI error: {payload.get('result') or payload}")
+        if proc.returncode != 0 or payload.get("is_error"):
+            detail = payload.get("result") or payload.get("errors") or err.decode() or "Unknown CLI error"
+            raise LLMError(f"claude CLI error: {str(detail)[:1000]}")
         return payload.get("result", "")

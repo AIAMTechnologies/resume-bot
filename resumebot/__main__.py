@@ -41,7 +41,7 @@ def init():
 
 
 @app.command()
-def run(dashboard_only: bool = typer.Option(False, "--dashboard-only", help="Serve the dashboard without applying"),
+def run(dashboard_only: bool = typer.Option(False, "--dashboard-only", help="Dashboard + Telegram; only apply when explicitly requested"),
         keep_awake: bool = typer.Option(True, help="Keep the Mac awake while running (caffeinate)")):
     """Start the dashboard + Telegram + scheduler (discover, score, apply, track inbox)."""
     import uvicorn
@@ -59,14 +59,19 @@ def run(dashboard_only: bool = typer.Option(False, "--dashboard-only", help="Ser
     async def main():
         config = uvicorn.Config(web, host=env().dashboard_host, port=env().dashboard_port, log_level="warning")
         server = uvicorn.Server(config)
-        tasks = [] if dashboard_only else await scheduler.run_all()
+        web.state.automatic = not dashboard_only
+        from . import db
+        db.kv_set("automatic_mode", not dashboard_only)
+        from .notify import telegram
+        tasks = [asyncio.create_task(telegram.poll_forever(), name="telegram")] if dashboard_only else await scheduler.run_all()
         console.print(f"[green]Dashboard:[/] http://{env().dashboard_host}:{env().dashboard_port}"
-                      + ("  [yellow](dashboard only)[/]" if dashboard_only else ""))
+                      + ("  [yellow](manual mode: dashboard + Telegram)[/]" if dashboard_only else ""))
         try:
             await server.serve()
         finally:
             for t in tasks:
                 t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
             await browsers.shutdown()
 
     try:

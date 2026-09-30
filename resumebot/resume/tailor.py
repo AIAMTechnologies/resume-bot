@@ -206,6 +206,8 @@ async def tailor_with_retry(job: Job, contact: dict) -> TailoredResume:
         result = await tailor(job, contact, extra_instruction=(
             "A previous draft missed these job keywords that the master profile CAN support — work "
             f"them in naturally where truthful: {', '.join(supportable)}"))
+    if _pages(result) > 2:
+        result = _trim_to_fit(result, job, contact)
     return result
 
 

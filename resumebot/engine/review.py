@@ -21,7 +21,7 @@ async def job_review(job: Job, reason: str) -> None:
     reasons = "\n".join(f"• {esc(r)}" for r in job.match_reasons[:4])
     item.telegram_message_id = await telegram.send(
         f"🤔 <b>Review</b> #{item.id}: {esc(reason)}\n{_job_line(job)}\n{reasons}",
-        [[("✅ Apply", f"rv:approve:{item.id}"), ("⏭ Skip", f"rv:skip:{item.id}")]])
+        [[("Preview & apply", f"preview:{job.id}"), ("⏭ Skip", f"rv:skip:{item.id}")]])
     db.save(item)
 
 
@@ -49,6 +49,11 @@ async def question_reviews(job: Job, questions: list[tuple[str, str, list[str]]]
 async def manual_review(job: Job, reason: str, resume_pdf: str = "", cover_letter: str = "",
                         outreach: str = "") -> None:
     """A job you apply to yourself (LinkedIn Easy Apply, Workday, company sites) with everything prepared."""
+    with db.session() as s:
+        existing = s.exec(select(ReviewItem).where(ReviewItem.job_id == job.id,
+            ReviewItem.kind == "manual", ReviewItem.status == "pending")).first()
+    if existing:
+        return
     item = db.save(ReviewItem(job_id=job.id, kind="manual", context=reason, proposed_answer=outreach))
     linkedin = job.source == "linkedin"
     head = "💼 <b>LinkedIn Easy Apply ready</b>" if linkedin else "🖐 <b>Apply yourself</b>"
@@ -83,6 +88,8 @@ def resolve(item_id: int, action: str, answer: str = "") -> str:
         if not item or item.status != "pending":
             return "Already handled."
         job = s.get(Job, item.job_id) if item.job_id else None
+        if job and job.status in (JobStatus.APPLIED, JobStatus.APPLYING):
+            return "Job is already applying or submitted."
         item.resolved_at = utcnow()
         if action == "approve" and job:
             item.status = "approved"

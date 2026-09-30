@@ -22,9 +22,7 @@
     <td style="white-space:nowrap">
       {% if j.status in ['skipped','review','failed','new'] %}<form class="inline" method="post" action="/jobs/{{ j.id }}/queue"><button class="btn sm">Queue</button></form>{% endif %}
       {% if j.status in ['queued','review','new'] %}<form class="inline" method="post" action="/jobs/{{ j.id }}/skip"><button class="btn sm">Skip</button></form>{% endif %}
-      {% if j.status in ['queued','failed'] and j.source not in ['workday','external'] %}
-        <form class="inline" method="post" action="/jobs/{{ j.id }}/dry-run"><button class="btn sm" title="Fill the form in the browser but don't submit">Dry run</button></form>
-      {% endif %}
+      <a class="btn sm" href="/jobs/{{ j.id }}/preview">Preview &amp; apply</a>
     </td>
   </tr>
   {% else %}<tr><td colspan="8" class="empty">No jobs yet. Discovery runs automatically once the bot is started.</td></tr>{% endfor %}

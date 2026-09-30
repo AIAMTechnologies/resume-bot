@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from .. import db
 from ..config import CONFIG_DIR, DATA_DIR, env, settings
-from ..engine import pipeline, review, stats
+from ..engine import actions, drafts, pipeline, review, stats
 from ..engine.pacing import Gate, to_local
 from ..models import Application, Job, JobStatus, ProfileItem
 from ..profile import ingest, master
@@ -31,12 +31,19 @@ _bg: set[asyncio.Task] = set()
 
 
 def background(coro) -> None:
-    t = asyncio.create_task(coro)
+    async def guarded():
+        try:
+            await coro
+        except Exception as error:
+            db.log(f"Dashboard operation failed: {error}", level="error", kind="control")
+    t = asyncio.create_task(guarded())
     _bg.add(t)
     t.add_done_callback(_bg.discard)
 
 
 def page(request: Request, name: str, **ctx):
+    ctx.setdefault("automatic", getattr(app.state, "automatic", False))
+    ctx.setdefault("telegram_connected", db.kv_get("telegram_connected", False))
     ctx.setdefault("active", name.split(".")[0])
     ctx["pending_count"] = stats.overview()["pending_reviews"]
     return templates.TemplateResponse(request, name, ctx)
@@ -97,8 +104,13 @@ async def application_detail(request: Request, app_id: int):
 
 @app.post("/applications/{app_id}/status")
 async def set_app_status(request: Request, app_id: int, status: str = Form(...)):
+    allowed = {value for key, value in vars(db.models.AppStatus).items() if key.isupper()}
+    if status not in allowed:
+        raise HTTPException(400, "Unknown application status")
     with db.session() as s:
         a = s.get(Application, app_id)
+        if not a:
+            raise HTTPException(404)
         a.status = status
         s.add(a)
         s.commit()
@@ -113,21 +125,42 @@ async def jobs(request: Request, status: str = "", source: str = ""):
 
 
 @app.post("/jobs/{job_id}/{action}")
-async def job_action(request: Request, job_id: int, action: str):
+async def job_action(request: Request, job_id: int, action: str, version: str = Form("")):
     with db.session() as s:
         job = s.get(Job, job_id)
         if not job:
             raise HTTPException(404)
     if action == "queue":
+        if actions.busy(job_id) or job.status in (JobStatus.APPLYING, JobStatus.APPLIED):
+            raise HTTPException(409, "Job is already applying or submitted")
         job.status, job.status_reason = JobStatus.QUEUED, "queued by you"
         db.save(job)
     elif action == "skip":
+        if actions.busy(job_id) or job.status in (JobStatus.APPLYING, JobStatus.APPLIED):
+            raise HTTPException(409, "Job is already applying or submitted")
         job.status, job.status_reason = JobStatus.SKIPPED, "skipped by you"
         db.save(job)
-    elif action in ("apply-now", "dry-run"):
-        background(pipeline.apply_job(job, dry_run=action == "dry-run"))
-        db.log(f"{'Dry run' if action == 'dry-run' else 'Apply now'} started for #{job.id}", kind="control", job_id=job.id)
+    elif action in ("preview", "refresh", "apply-now", "dry-run"):
+        try:
+            actions.start(job_id, "apply" if action == "apply-now" else action, version)
+        except ValueError as error:
+            raise HTTPException(409, str(error))
+        return RedirectResponse(f"/jobs/{job_id}/preview", status_code=303)
+    else:
+        raise HTTPException(400, "Unknown action")
     return back(request, "/jobs")
+
+
+@app.get("/jobs/{job_id}/preview", response_class=HTMLResponse)
+async def resume_preview(request: Request, job_id: int):
+    with db.session() as s:
+        job = s.get(Job, job_id)
+        events = list(s.exec(db.select(db.models.Event).where(db.models.Event.job_id == job_id)
+                            .order_by(db.models.Event.ts.desc()).limit(8)))
+    if not job:
+        raise HTTPException(404)
+    return page(request, "preview.html", job=job, draft=drafts.get(job_id),
+                busy=actions.busy(job_id), events=events, active="jobs")
 
 
 @app.get("/review", response_class=HTMLResponse)
@@ -207,6 +240,8 @@ async def save_titles(request: Request, titles: str = Form("")):
 async def toggle_item(request: Request, item_id: int):
     with db.session() as s:
         it = s.get(ProfileItem, item_id)
+        if not it:
+            raise HTTPException(404)
         it.hidden = not it.hidden
         s.add(it)
         s.commit()
@@ -215,6 +250,8 @@ async def toggle_item(request: Request, item_id: int):
 
 @app.post("/control/{action}/{source}")
 async def control(request: Request, action: str, source: str):
+    if action not in ("pause", "resume", "discover") or (source != "all" and source not in SOURCES):
+        raise HTTPException(400, "Unknown control or source")
     names = list(SOURCES) if source == "all" else [source]
     for n in names:
         if action in ("pause", "resume"):
@@ -234,9 +271,9 @@ async def settings_page(request: Request):
         files[name] = p.read_text() if p.exists() else "(missing — run `resumebot init`)"
     e = env()
     checks = {
-        "LLM backend": e.llm_backend + (f" ({find_claude_cli() or 'CLI NOT FOUND'})" if e.llm_backend == "claude_cli" else ""),
+        "LLM backend": e.llm_backend + (f" → {e.llm_fallback} fallback" if e.llm_fallback else "") + (f" ({find_claude_cli() or 'CLI NOT FOUND'})" if e.llm_backend == "claude_cli" else ""),
         "Model": e.llm_model,
-        "Telegram": "connected" if e.telegram_bot_token and e.telegram_chat_id else "not configured",
+        "Telegram": "connected" if db.kv_get("telegram_connected") else "offline / not configured",
         "Gmail tracker": e.gmail_address or "not configured",
         "GitHub": e.github_username or "not configured",
     }
@@ -246,7 +283,7 @@ async def settings_page(request: Request):
 @app.get("/file")
 async def file(path: str):
     p = Path(path).resolve()
-    if not str(p).startswith(str(DATA_DIR.resolve())) or not p.exists():
+    if not p.is_relative_to(DATA_DIR.resolve()) or not p.is_file():
         raise HTTPException(404)
     return FileResponse(p)
 

@@ -88,6 +88,9 @@ HELP = """<b>Resume Bot</b>
 /status – sources, today's counts, next actions
 /today – applications submitted today
 /queue – pending review items
+/jobs – jobs available to apply to
+/preview JOB_ID – generate and send the exact resume
+/apply JOB_ID – preview and confirm an application
 /pause [source|all] – pause (default all)
 /resume [source|all] – resume
 /run – start applying now (ignores the current wait, not caps/hours)
@@ -113,11 +116,32 @@ async def handle_command(text: str) -> str:
     from ..sources import SOURCES
 
     parts = text.strip().split()
+    if not parts:
+        return HELP
     cmd = parts[0].split("@")[0].lower()
     arg = parts[1].lower() if len(parts) > 1 else "all"
     targets = list(SOURCES) if arg == "all" else [arg]
     if cmd in ("/start", "/help"):
         return HELP
+    if cmd == "/jobs":
+        from ..models import Job, JobStatus
+        with db.session() as s:
+            jobs = s.exec(db.select(Job).where(Job.status.notin_([JobStatus.APPLIED, JobStatus.SKIPPED]))
+                          .order_by(Job.match_score.desc()).limit(15)).all()
+        return ("\n".join(f"#{j.id} · {esc(j.title)} — {esc(j.company)} ({j.status})" for j in jobs)
+                + "\n\nUse /preview JOB_ID or /apply JOB_ID.") if jobs else "No available jobs."
+    if cmd in ("/preview", "/apply"):
+        from ..engine import actions, drafts
+        if not arg.isdigit():
+            return f"Usage: {cmd} JOB_ID (use /jobs to find IDs)."
+        job_id = int(arg)
+        try:
+            if (drafts.get(job_id) or {}).get("status") == "ready":
+                await send_preview(job_id)
+                return "Review the PDF and use its confirmation button."
+            return actions.start(job_id, "preview", notify=True)
+        except ValueError as error:
+            return str(error)
     if cmd == "/status":
         return await _status_text()
     if cmd == "/today":
@@ -138,6 +162,8 @@ async def handle_command(text: str) -> str:
         db.log(f"{cmd[1:].title()}d {arg} via Telegram", kind="control")
         return f"{'Paused' if cmd == '/pause' else 'Resumed'}: {arg}"
     if cmd == "/run":
+        if not db.kv_get("automatic_mode", False):
+            return "Manual mode: use /jobs, then /apply JOB_ID to preview and confirm."
         db.kv_set("run_now", True)
         return "OK — skipping the current wait on the next scheduler tick."
     if cmd == "/dashboard":
@@ -147,29 +173,66 @@ async def handle_command(text: str) -> str:
 
 async def handle_callback(data: str) -> str:
     from ..engine import review
+    if data.startswith("apply:"):
+        from ..engine import actions
+        try:
+            _, job_id, version = data.split(":")
+            return actions.start(int(job_id), "apply", version, notify=True)
+        except (ValueError, TypeError) as error:
+            return str(error)
+    if data.startswith("preview:"):
+        from ..engine import actions
+        try:
+            return actions.start(int(data.split(":")[1]), "preview", notify=True)
+        except (ValueError, TypeError) as error:
+            return str(error)
+    if len(data.split(":")) != 3:
+        return "Unknown button. Use /help."
     kind, action, item_id = data.split(":")
-    if kind != "rv":
+    if kind != "rv" or not item_id.isdigit():
         return "?"
+    # Existing messages still have legacy Apply buttons. Make them preview-first too.
+    if action == "approve":
+        from ..engine import actions
+        from ..models import ReviewItem
+        with db.session() as s:
+            item = s.get(ReviewItem, int(item_id))
+        if not item or item.status != "pending":
+            return "Already handled. Use /jobs to preview the job."
+        try:
+            return actions.start(item.job_id, "preview", notify=True)
+        except ValueError as error:
+            return str(error)
     return review.resolve(int(item_id), action)
 
 
 async def poll_forever() -> None:
     """Long-poll Telegram for commands, button presses, and replies."""
+    db.kv_set("telegram_connected", False)
     if not enabled():
         return
     from ..engine import review
     offset = db.kv_get("telegram_offset", 0)
     chat_id = str(env().telegram_chat_id)
-    await call("setMyCommands", commands=[
+    commands = [
         {"command": c, "description": d} for c, d in [
             ("status", "Sources and today's numbers"), ("today", "Today's applications"),
             ("queue", "Pending review items"), ("pause", "Pause a source or all"),
-            ("resume", "Resume a source or all"), ("run", "Apply now"), ("dashboard", "Dashboard link")]])
+            ("resume", "Resume a source or all"), ("run", "Run scheduler"), ("dashboard", "Dashboard link"),
+            ("jobs", "List jobs and IDs"), ("preview", "Preview resume: /preview JOB_ID"),
+            ("apply", "Preview and confirm: /apply JOB_ID")]]
+    registered = False
     while True:
         try:
+            if not registered:
+                await call("setMyCommands", commands=commands)
+                registered = True
+                db.kv_set("telegram_connected", True)
             updates = await call("getUpdates", offset=offset, timeout=50,
                                  allowed_updates=["message", "callback_query"])
+            db.kv_set("telegram_connected", True)
         except Exception as e:  # noqa: BLE001
+            db.kv_set("telegram_connected", False)
             db.log(f"Telegram poll error: {e}", level="warning", kind="notify")
             await asyncio.sleep(15)
             continue
@@ -191,11 +254,11 @@ async def poll_forever() -> None:
                     if str(m["chat"]["id"]) != chat_id:
                         continue
                     text = m.get("text", "")
-                    if m.get("reply_to_message"):
+                    if text.startswith("/"):
+                        await send(await handle_command(text))
+                    elif m.get("reply_to_message"):
                         reply = review.answer_by_telegram_message(m["reply_to_message"]["message_id"], text)
                         await send(esc(reply), reply_to=m["message_id"])
-                    elif text.startswith("/"):
-                        await send(await handle_command(text))
             except Exception as e:  # noqa: BLE001
                 db.log(f"Telegram handler error: {e}", level="error", kind="notify")
 
@@ -208,3 +271,26 @@ async def discover_chat_ids() -> list[tuple[str, str]]:
         if chat:
             seen[str(chat["id"])] = chat.get("username") or chat.get("first_name", "")
     return list(seen.items())
+
+
+async def send_preview(job_id: int) -> None:
+    from ..engine import drafts
+    from ..models import Job, JobStatus
+    with db.session() as s:
+        job = s.get(Job, job_id)
+    if not job:
+        raise ValueError('Job not found.')
+    materials, _ = drafts.load(job_id)
+    draft = drafts.get(job_id)
+    message_id = await send_document(str(materials.resume_pdf),
+        f'Resume preview #{job_id} — {esc(job.title)} @ {esc(job.company)}')
+    if message_id is None:
+        raise ValueError('Could not deliver the preview PDF. Retry /preview or use the dashboard.')
+    manual = job.source in ('linkedin', 'workday', 'external')
+    buttons = [] if job.status in (JobStatus.APPLIED, JobStatus.APPLYING) else [[(
+        'Prepare manual application' if manual else 'Apply now with this resume',
+        f'apply:{job_id}:{draft["version"]}')]]
+    await send(f'<b>Preview #{job_id}</b> — {esc(job.title)} @ {esc(job.company)}\n'
+               'The saved resume above will be used unchanged.\n' +
+               ('You finish submission on the job website.' if manual else
+                'The button submits this job immediately, outside the automatic schedule.'), buttons)

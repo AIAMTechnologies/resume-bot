@@ -13,3 +13,6 @@ config/answers.yaml
 .claude/
 build/
 dist/
+
+.playwright-cli/
+output/

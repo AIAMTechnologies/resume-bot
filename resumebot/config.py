@@ -24,6 +24,9 @@ class Env(BaseSettings):
     claude_code_oauth_token: str = ""  # from `claude setup-token`; lets the bot use your plan headlessly
     anthropic_api_key: str = ""
     llm_model: str = "claude-sonnet-5-5"
+    llm_fallback: str = ""
+    codex_cli_path: str = ""
+    codex_model: str = ""
 
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""

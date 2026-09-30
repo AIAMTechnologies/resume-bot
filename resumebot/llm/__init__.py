@@ -17,11 +17,19 @@ from .base import LLM, LLMError
 @lru_cache
 def get_llm() -> LLM:
     backend = env().llm_backend
+    if backend == "codex_cli":
+        from .codex_cli import CodexCLI
+        return CodexCLI()
     if backend == "anthropic_api":
         from .anthropic_api import AnthropicAPI
         return AnthropicAPI()
     from .claude_cli import ClaudeCLI
-    return ClaudeCLI()
+    primary = ClaudeCLI()
+    if env().llm_fallback == "codex_cli":
+        from .codex_cli import CodexCLI
+        from .fallback import FallbackLLM
+        return FallbackLLM(primary, CodexCLI())
+    return primary
 
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)

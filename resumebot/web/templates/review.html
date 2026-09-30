@@ -30,9 +30,10 @@
       <p class="small">{{ i.context }}</p>
       {% if j and j.match_reasons %}<ul class="small">{% for r in j.match_reasons %}<li>{{ r }}</li>{% endfor %}</ul>{% endif %}
       {% if j and j.missing_skills %}<p class="small"><b>Gaps:</b> {{ j.missing_skills|join(', ') }}</p>{% endif %}
+      {% if j %}<p><a class="btn primary" href="/jobs/{{ j.id }}/preview">Preview resume &amp; apply</a></p>{% endif %}
       <div style="display:flex;gap:6px">
         {% if i.kind == 'job' %}
-          <form method="post" action="/review/{{ i.id }}"><input type="hidden" name="action" value="approve"><button class="btn primary">Apply</button></form>
+          <form method="post" action="/review/{{ i.id }}"><input type="hidden" name="action" value="approve"><button class="btn">Queue for automatic run</button></form>
         {% else %}
           <form method="post" action="/review/{{ i.id }}"><input type="hidden" name="action" value="done"><button class="btn primary">I applied</button></form>
         {% endif %}

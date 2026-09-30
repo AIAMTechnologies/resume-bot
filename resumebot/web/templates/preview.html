@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/jobs">← Jobs</a></p>
+<h1>{{ job.title }} — {{ job.company }}</h1>
+<p>Job #{{ job.id }} · {{ job.source }} · <b>{{ job.status }}</b> · {{ job.status_reason }}</p>
+{% if busy %}
+<div class="card" role="status">Working on this job… This page refreshes automatically.</div>
+<script>setTimeout(() => location.reload(), 4000);</script>
+{% endif %}
+{% if draft and draft.status == 'ready' %}
+<div class="card">
+  <h2>Resume preview</h2>
+  <p>This saved PDF and DOCX will be used for this application. Applying will not generate a different resume.</p>
+  <p>ATS score: {{ draft.report.score }} · Keyword coverage: {{ '%d%%'|format(draft.report.keyword_coverage * 100) }}</p>
+  <p><a href="/file?path={{ draft.resume_pdf|urlencode }}" target="_blank">Open / download PDF</a> · <a href="/file?path={{ draft.resume_docx|urlencode }}">Download DOCX</a></p>
+  <iframe title="Exact resume for this application" src="/file?path={{ draft.resume_pdf|urlencode }}#view=FitH&amp;navpanes=0" style="width:100%;height:780px;border:1px solid var(--border)"></iframe>
+  {% if draft.report.issues %}<ul>{% for issue in draft.report.issues %}<li>{{ issue }}</li>{% endfor %}</ul>{% endif %}
+  {% if draft.cover_letter %}<h2>Cover letter</h2><div style="white-space:pre-wrap">{{ draft.cover_letter }}</div>{% endif %}
+</div>
+{% if not busy and job.status not in ['applied', 'applying'] %}
+<div class="card">
+{% if job.source in ['linkedin', 'workday', 'external'] %}
+<p>This source requires you to finish the application on the company website.</p>
+{% else %}
+<p>Apply now submits this job immediately, outside the automatic schedule.</p>
+{% endif %}
+<form class="inline" method="post" action="/jobs/{{ job.id }}/apply-now">
+<input type="hidden" name="version" value="{{ draft.version }}">
+<button class="btn primary">{{ 'Prepare manual application' if job.source in ['linkedin', 'workday', 'external'] else 'Apply now with this resume' }}</button>
+</form>
+{% if job.source not in ['linkedin', 'workday', 'external'] %}
+<form class="inline" method="post" action="/jobs/{{ job.id }}/dry-run"><input type="hidden" name="version" value="{{ draft.version }}"><button class="btn">Test form without submitting</button></form>
+{% endif %}
+<form class="inline" method="post" action="/jobs/{{ job.id }}/refresh"><button class="btn">Regenerate preview</button></form>
+<p><a href="{{ job.apply_url or job.url }}" target="_blank" rel="noopener">Open job posting</a> · <a href="/review">Review questions and manual applications</a></p>
+</div>
+{% endif %}
+{% elif not busy %}
+<div class="card">
+{% if draft and draft.error %}<p role="alert">{{ draft.error }}</p>{% endif %}
+<p>Generate the tailored resume and cover letter to review before applying.</p>
+<form method="post" action="/jobs/{{ job.id }}/preview"><button class="btn primary">Generate resume preview</button></form>
+</div>
+{% endif %}
+<div class="card"><h2>Recent activity</h2>{% for event in events %}<p>{{ event.ts|local }} · {{ event.message }}</p>{% else %}<p>No activity yet.</p>{% endfor %}</div>
+{% endblock %}
