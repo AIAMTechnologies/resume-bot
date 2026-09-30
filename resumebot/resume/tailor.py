@@ -27,7 +27,13 @@ Absolute rules (violations make the resume unusable):
    Pick the 2–4 most relevant projects.
 6. Length: the resume MUST fit on two pages. Caps: current role 6 bullets, other roles 4,
    roles older than 5 years 2, each project 2 bullets, 5 skill categories of at most 10 items.
-   Prefer fewer, stronger, job-relevant bullets over completeness."""
+   Prefer fewer, stronger, job-relevant bullets over completeness.
+7. ATS wording: for every job keyword the master profile supports, use the job's EXACT wording at
+   least once (in Skills, or in a bullet whose source supports it). Mirror the job's terms for
+   titles of skill categories where natural. Use the standard headings only.
+8. Items listed under "SKILLS-SECTION-ONLY" in the prompt are real skills the candidate has, but
+   with no recorded employer. List them in Skills using the job's exact wording; NEVER attribute
+   them to an employer or project in a bullet, and never cite their ids as a bullet source."""
 
 TAILOR_FORMAT = """Return JSON:
 {
@@ -62,9 +68,12 @@ _NUM = re.compile(r"\d[\d,.]*\s*%?|\$\s?\d[\d,.]*[kKmM]?")
 def _verify(content: dict, items_by_id: dict[int, Any]) -> list[str]:
     """Deterministic truth checks. Mutates content; returns a list of dropped/replaced things."""
     dropped: list[str] = []
+    skills_only_ids = {i for i, it in items_by_id.items()
+                       if any("skills section only" in src for src in getattr(it, "sources", []) or [])}
     known_skills = {ats.normalize(s).strip() for s in master.all_skills()}
     evidence = ats.normalize(" ".join(
         " ".join([i.title, *i.bullets, *i.skills]) for i in items_by_id.values()))
+    evidence_words = set(re.split(r"[^a-z0-9+#.]+", evidence))
     stop = {"and", "of", "the", "for", "with", "in", "to", "a", "e", "g"}
 
     def known(skill: str) -> bool:
@@ -73,8 +82,9 @@ def _verify(content: dict, items_by_id: dict[int, Any]) -> list[str]:
             return True
         # A rewording is fine when every meaningful word is evidenced somewhere in the profile
         # ("Security Metrics", "Network Segmentation"); a new tool or skill is not.
+        # Word order doesn't matter ("IDS/IPS" = "IPS/IDS").
         words = [w for w in re.split(r"[^a-z0-9+#.]+", n) if w and w not in stop]
-        return bool(words) and all(f" {w}" in evidence for w in words)
+        return bool(words) and all(w in evidence_words for w in words)
 
     for group in content.get("skills", []):
         keep = [s for s in group.get("items", []) if known(s)]
@@ -100,6 +110,10 @@ def _verify(content: dict, items_by_id: dict[int, Any]) -> list[str]:
             clean = []
             for b in e.get("bullets", []):
                 text = b["text"] if isinstance(b, dict) else str(b)
+                cited = set(b.get("source_ids", [])) if isinstance(b, dict) else set()
+                if cited & skills_only_ids:
+                    dropped.append(f"bullet attributing a skills-only item to {src.organization or src.title}: {text[:80]}")
+                    continue
                 new_nums = {n.strip() for n in _NUM.findall(text)} - source_nums
                 if new_nums:
                     dropped.append(f"bullet with unsupported numbers {sorted(new_nums)}: {text[:80]}")
@@ -110,13 +124,49 @@ def _verify(content: dict, items_by_id: dict[int, Any]) -> list[str]:
                 e["stack"] = [s for s in e.get("stack", []) if known(s)]
             entries.append(e)
         content[section] = entries
+    _backfill_keywords(content, known)
     return dropped
+
+
+def _resume_text(content: dict) -> str:
+    parts = [content.get("headline", ""), content.get("summary", "")]
+    for g in content.get("skills", []):
+        parts += g.get("items", [])
+    for section in ("experience", "projects", "education", "certifications"):
+        for e in content.get(section, []):
+            parts += [e.get("title", ""), *[b if isinstance(b, str) else b.get("text", "") for b in e.get("bullets", [])],
+                      *e.get("stack", [])]
+    return " ".join(p for p in parts if p)
+
+
+def _backfill_keywords(content: dict, known) -> list[str]:
+    """Add job keywords the profile genuinely supports but the draft left out, word for word.
+
+    This is what lifts ATS keyword coverage honestly: nothing is added that fails the same
+    evidence check applied to every other skill.
+    """
+    text = ats.normalize(_resume_text(content))
+    unsupported = {ats.normalize(u).strip() for u in content.get("unsupported_keywords", [])}
+    added = [k for k in content.get("jd_keywords", [])
+             if not ats.has_keyword(text, k) and ats.normalize(k).strip() not in unsupported and known(k)]
+    if added:
+        groups = content.setdefault("skills", [])
+        extra = next((g for g in groups if g.get("category") == "Additional Skills"), None)
+        if extra is None:
+            extra = {"category": "Additional Skills", "items": []}
+            groups.append(extra)
+        extra["items"] = [*extra["items"], *added][:14]
+    return added
 
 
 async def tailor(job: Job, contact: dict, extra_instruction: str = "") -> TailoredResume:
     items = master.all_items()
     items_by_id = {i.id: i for i in items}
     context = f"MASTER PROFILE (ids in brackets):\n{master.render(items)}"
+    skills_only = [i for i in items if any("skills section only" in src for src in i.sources)]
+    if skills_only:
+        extra_instruction = ("SKILLS-SECTION-ONLY item ids: " + ", ".join(str(i.id) for i in skills_only)
+                             + "\n" + extra_instruction)
     prompt = f"""JOB: {job.title} at {job.company} ({job.location})
 <<<
 {job.description[:15000]}

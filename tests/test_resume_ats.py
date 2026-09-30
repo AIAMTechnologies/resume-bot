@@ -109,3 +109,32 @@ async def test_keyword_retry_keeps_best_draft_and_fits_two_pages(monkeypatch, tm
     assert trimmed == [0.3]                       # the 3-page retry was trimmed to fit
     assert result.content == {"coverage": 0.4}    # but the better first draft is kept...
     assert rendered == [0.4]                      # ...and written back to disk
+
+
+def test_skills_only_items_never_become_employer_bullets():
+    master.merge_items([{"kind": "experience", "title": "Analyst", "organization": "SkillsOnlyCo",
+                         "start": "2020", "end": "2021", "bullets": ["Ran the SOC"], "skills": ["SOC"]}], "t")
+    master.merge_items([{"kind": "skill", "title": "Network Security X", "skills": ["Palo Alto Networks Firewalls"]}],
+                       "self-reported (skills section only until a role is named)")
+    items = {i.id: i for i in master.all_items()}
+    exp = next(i for i in items.values() if i.organization == "SkillsOnlyCo")
+    only = next(i for i in items.values() if i.title == "Network Security X")
+    content = {"skills": [{"category": "Network", "items": ["Palo Alto Networks Firewalls"]}],
+               "experience": [{"source_ids": [exp.id], "bullets": [
+                   {"text": "Ran the SOC", "source_ids": [exp.id]},
+                   {"text": "Deployed Palo Alto firewalls", "source_ids": [only.id]}]}]}
+    dropped = tailor._verify(content, items)
+    assert content["experience"][0]["bullets"] == ["Ran the SOC"]
+    assert content["skills"][0]["items"] == ["Palo Alto Networks Firewalls"]  # still allowed in Skills
+    assert any("skills-only" in d for d in dropped)
+
+
+def test_supported_job_keywords_are_backfilled_word_for_word():
+    master.merge_items([{"kind": "skill", "title": "Ops Backfill", "skills": ["IPS/IDS", "24/7 On-Call Incident Management"]}], "t")
+    items = {i.id: i for i in master.all_items()}
+    content = {"jd_keywords": ["IDS/IPS", "On-call rotation", "Splunk"], "unsupported_keywords": ["Splunk"],
+               "skills": [{"category": "Security", "items": ["Incident Response"]}]}
+    tailor._verify(content, items)
+    extra = next(g for g in content["skills"] if g["category"] == "Additional Skills")
+    assert "IDS/IPS" in extra["items"]
+    assert "Splunk" not in extra["items"]  # never claimed without evidence
