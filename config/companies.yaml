@@ -7,12 +7,37 @@
 # ATSs are handled automatically even if the company isn't listed here.
 
 greenhouse:
+  - okta
+  - elastic
+  - affirm
+  - datadog
+  - coinbase
+  - gitlab
+  - huntress
+  - klaviyo
+  - abnormalsecurity
+  - chainguard
+  - reddit
+  - sofi
+  - brex
+  - expel
+  - netskope
+  - twilio
+  - cloudflare
+  - tailscale
+  - mongodb
+  - chime
   - faire
   - stripe
   - databricks
   - figma
 lever: []
 ashby:
+  - vanta
+  - snowflake
+  - socure
+  - semgrep
+  - persona
   - plaid
   - wealthsimple
   - cohere

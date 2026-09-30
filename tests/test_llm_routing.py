@@ -68,3 +68,16 @@ async def test_callers_pick_the_right_model(monkeypatch):
     seen.clear()
     await matcher.score(Job(source="x", external_id="1", company="c", title="t", url="u"))
     assert seen[0][1] is True  # SCORE_WITH_FAST_MODEL=true opts back into the cheaper model
+
+
+
+async def test_scorer_is_told_work_authorization(monkeypatch):
+    seen = []
+    async def fake(prompt, system="", max_tokens=4000, *, context="", fast=False):
+        seen.append((prompt, system))
+        return {"score": 80}
+    monkeypatch.setattr(matcher, "complete_json", fake)
+    await matcher.score(Job(source="x", external_id="1", company="c", title="t", url="u", location="San Francisco"))
+    prompt, system = seen[0]
+    assert "CANDIDATE LOGISTICS" in prompt and "Authorized to work in the US today" in prompt
+    assert "export-control" in system and "relocate" in system

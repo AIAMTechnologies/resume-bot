@@ -108,11 +108,35 @@ def prefilter(job: Job) -> tuple[bool, str]:
 SCORE_SYSTEM = """You are a precise technical recruiter screening a candidate for a job.
 Score 0-100 for how likely the candidate passes a recruiter screen, given ONLY the evidence
 in their profile. 85+: meets nearly all requirements. 70-84: meets most must-haves.
-50-69: partial. <50: poor fit or wrong seniority. Be calibrated, not generous."""
+50-69: partial. <50: poor fit or wrong seniority. Be calibrated, not generous.
+Use the CANDIDATE LOGISTICS block for location and work authorization. Do not treat a US or
+other listed location as a blocker when the logistics say the candidate can work there or will
+relocate. Only flag authorization as a hard blocker when the job itself requires something the
+logistics rule out (e.g. US citizenship, security clearance, export-control/ITAR eligibility)."""
+
+
+def candidate_logistics() -> str:
+    """Work authorization and relocation facts from answers.yaml, for the scorer."""
+    from ..config import answers
+    a = answers()
+    wa, lg, c = a.get("work_authorization", {}), a.get("logistics", {}), a.get("contact", {})
+    custom = a.get("custom", {})
+    lines = [
+        f"Based in: {', '.join(x for x in [c.get('city'), c.get('province_state'), c.get('country')] if x)}",
+        f"Authorized to work in Canada: {wa.get('canada', '')}; needs sponsorship in Canada: {wa.get('requires_sponsorship_canada', '')}",
+        f"Authorized to work in the US today: {wa.get('united_states', '')}; needs US sponsorship: {wa.get('requires_sponsorship_us', '')}",
+        f"Citizenship: {custom.get('What is your citizenship?', '')}",
+        f"US visa route: {custom.get('Please describe your visa or work authorization status', '')}",
+        f"Relocation: {wa.get('relocation_details') or wa.get('willing_to_relocate', '')}",
+        f"Open to remote/hybrid/on-site: {lg.get('open_to_remote', '')}/{lg.get('open_to_hybrid', '')}/{lg.get('open_to_onsite', '')}",
+    ]
+    return "CANDIDATE LOGISTICS:\n" + "\n".join(line for line in lines if not line.endswith(": "))
 
 
 async def score(job: Job) -> tuple[int, list[str], list[str]]:
-    result = await complete_json(f"""JOB: {job.title} at {job.company} — {job.location} {job.salary}
+    result = await complete_json(f"""{candidate_logistics()}
+
+JOB: {job.title} at {job.company} — {job.location} {job.salary}
 {job.description[:10000]}
 
 Return {{"score": 0-100, "reasons": ["up to 4 short reasons"], "missing": ["must-have requirements the candidate lacks"],
