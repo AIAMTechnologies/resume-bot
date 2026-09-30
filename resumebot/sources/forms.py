@@ -59,6 +59,13 @@ SCAN_JS = r"""
       el.closest('[class*=required i]') || label?.matches('[class*=required i]'));
   };
   const out = []; const groups = {}; let n = start;
+  const stableSelector = el => {
+    if (el.id) return `#${CSS.escape(el.id)}`;
+    if (el.name) return `${el.tagName.toLowerCase()}[name="${CSS.escape(el.name)}"]`;
+    const entry = el.closest('[data-field-path]');
+    if (entry) return `[data-field-path="${CSS.escape(entry.getAttribute('data-field-path'))}"] ${el.tagName.toLowerCase()}`;
+    return `[data-rb-id="${el.getAttribute('data-rb-id')}"]`;
+  };
   root.querySelectorAll('input, select, textarea').forEach(el => {
     const type = (el.getAttribute('type') || el.tagName).toLowerCase();
     if (['hidden', 'submit', 'button', 'image', 'reset', 'search'].includes(type)) return;
@@ -69,14 +76,14 @@ SCAN_JS = r"""
     if (type === 'radio' || (type === 'checkbox' && el.name && document.querySelectorAll(`input[type=checkbox][name="${CSS.escape(el.name)}"]`).length > 1)) {
       const key = type + ':' + (el.name || groupLabel(el));
       groups[key] = groups[key] || { kind: type === 'radio' ? 'radio' : 'checkgroup', label: groupLabel(el) || el.name,
-        required: false, options: [], ids: [], checked: [] };
-      const g = groups[key]; g.options.push(labelFor(el)); g.ids.push(id); if (el.checked) g.checked.push(labelFor(el));
+        required: false, options: [], ids: [], selectors: [], checked: [] };
+      const g = groups[key]; g.options.push(labelFor(el)); g.ids.push(id); g.selectors.push(stableSelector(el)); if (el.checked) g.checked.push(labelFor(el));
       g.required = g.required || isReq(el);
       return;
     }
     const f = { id, kind: el.tagName === 'SELECT' ? 'select' : el.tagName === 'TEXTAREA' ? 'textarea' : type,
       label: labelFor(el), required: isReq(el), value: el.type === 'checkbox' ? String(el.checked) : (el.value || ''),
-      role: el.getAttribute('role') || '', name: el.name || '', accept: el.getAttribute('accept') || '' };
+      role: el.getAttribute('role') || '', name: el.name || '', accept: el.getAttribute('accept') || '', selector: stableSelector(el) };
     if (el.tagName === 'SELECT') f.options = [...el.options].filter(o => o.value && !/^(select|choose|--|please)/i.test(o.text.trim())).map(o => o.text.trim());
     if (f.role === 'combobox' || el.getAttribute('aria-autocomplete') === 'list') f.kind = 'combobox';
     out.push(f);
@@ -88,7 +95,7 @@ SCAN_JS = r"""
     const entry = group.closest('.ashby-application-form-field-entry');
     const ids = buttons.map(el => { const id = String(n++); el.setAttribute('data-rb-id', id); return id; });
     out.push({kind: 'radio', label: textOf(entry?.querySelector('label') || group),
-      required: isReq(buttons[0]), options: buttons.map(el => clean(el.innerText)), ids,
+      required: isReq(buttons[0]), options: buttons.map(el => clean(el.innerText)), ids, selectors: buttons.map(stableSelector),
       checked: buttons.filter(el => el.getAttribute('aria-pressed') === 'true').map(el => clean(el.innerText))});
   });
   Object.values(groups).forEach(g => out.push(g));
@@ -147,6 +154,13 @@ BUSY_RE = r"parsing your resume|uploading|autofilling"
 
 async def _scan(ctx: ApplyContext, root_selector: str, start: int) -> list[dict]:
     return await ctx.page.evaluate(SCAN_JS, [root_selector, start])
+
+
+def _locator(ctx: ApplyContext, field: dict, index: int | None = None) -> "Locator":
+    """Find the current DOM node after a framework replaces a scanned form field."""
+    selector = (field.get("selectors") or [])[index] if index is not None else field.get("selector")
+    fallback = f'[data-rb-id="{field["ids"][index] if index is not None else field["id"]}"]'
+    return ctx.page.locator(selector or fallback).first
 
 
 async def _settle(ctx: ApplyContext, timeout: float = 20) -> None:
@@ -212,11 +226,11 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
                 if answer not in f["options"]:
                     raise NeedsHuman(label, answer, f["options"])
                 idx = f["options"].index(answer)
-                await ctx.human.click(await _clickable(ctx, ctx.page.locator(f'[data-rb-id="{f["ids"][idx]}"]')))
+                await ctx.human.click(await _clickable(ctx, _locator(ctx, f, idx)))
                 filled[label] = answer
                 continue
 
-            loc = ctx.page.locator(f'[data-rb-id="{f["id"]}"]')
+            loc = _locator(ctx, f)
             if kind == "checkbox":
                 checked = f.get("value") == "true"
                 if SKIP_CHECKBOX_RE.search(label):

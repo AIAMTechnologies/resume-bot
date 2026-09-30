@@ -153,3 +153,23 @@ async def test_unmatched_combobox_does_not_press_enter(chrome_page):
         assert not await forms._pick_combobox(ctx, page.locator('input'), 'Missing city')
         assert not await page.evaluate('Boolean(window.submitted)')
         await browser.close()
+
+
+async def test_fills_fields_after_reactive_rerender(tmp_path, chrome_page):
+    """A React-style redraw removes temporary scan attributes after each edit."""
+    from resumebot.sources import forms
+    resume = tmp_path / "resume.pdf"
+    resume.write_bytes(b"%PDF-1.4 test")
+    async def answer(field):
+        return {"First": "Ammar", "Last": "Alam"}.get(field.label, "")
+    async with chrome_page.async_playwright() as pw:
+        browser = await pw.chromium.launch(channel="chrome", headless=True)
+        page = await browser.new_page()
+        await page.set_content('''<form><label for="first">First</label><input id="first"
+          oninput="document.querySelectorAll('[data-rb-id]').forEach(e => e.removeAttribute('data-rb-id'))">
+          <label for="last">Last</label><input id="last"></form>''')
+        ctx = ApplyContext(job=None, page=page, human=FastHuman(page), materials=Materials(resume, resume), answer=answer)
+        await forms.fill_form(ctx, "form")
+        assert await page.locator("#first").input_value() == "Ammar"
+        assert await page.locator("#last").input_value() == "Alam"
+        await browser.close()
