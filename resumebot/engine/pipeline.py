@@ -181,6 +181,14 @@ def next_job(source_name: str) -> Job | None:
         candidates = list(s.exec(select(Job).where(Job.source == source_name, Job.status == JobStatus.QUEUED)
                                  .order_by(Job.match_score.desc(), Job.discovered_at).limit(25)))
     for job in candidates:
+        # Last check before submitting: jobs queued under older rules must still pass today's filters.
+        ok, why = matcher.location_ok(job)
+        if not ok or any(k.lower() in job.title.lower() for k in settings().targets.exclude_title_keywords):
+            job.status, job.status_reason = JobStatus.SKIPPED, f"no longer matches filters: {why if not ok else 'excluded title'}"
+            db.save(job)
+            db.log(f"Not applying to {job.title} @ {job.company}: {job.status_reason}",
+                   source=source_name, kind="apply", job_id=job.id)
+            continue
         if cap and company_recent_count(job.company) >= cap:
             job.status, job.status_reason = JobStatus.SKIPPED, f"company cap ({cap} per 90 days) reached"
             db.save(job)

@@ -88,3 +88,16 @@ def test_remote_jobs_tied_to_other_countries_are_rejected():
     assert ok("San Francisco")
     assert ok("US - Remote")
     assert ok("Remote")
+
+
+def test_queued_job_rechecked_before_applying():
+    from resumebot import db
+    from resumebot.engine import pipeline
+    from resumebot.models import Job, JobStatus
+    from uuid import uuid4
+    bad = db.save(Job(source="ashby", external_id=uuid4().hex, company="Far Co", title="Security Analyst", url="u",
+                      location="London, UK", remote=True, status=JobStatus.QUEUED, match_score=99))
+    picked = pipeline.next_job("ashby")
+    assert picked is None or picked.id != bad.id
+    with db.session() as s:
+        assert s.get(Job, bad.id).status == JobStatus.SKIPPED
