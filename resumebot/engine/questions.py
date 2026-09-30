@@ -59,7 +59,7 @@ RULES: list[tuple[str, str]] = [
     (r"github", "contact.github"),
     (r"portfolio|personal (web)?site|website", "contact.portfolio"),
     (r"postal|zip", "contact.postal_code"),
-    (r"^city|current city|location \(city\)", "contact.city"),
+    (r"^city|current city|^location$|location \(city\)", "contact.city"),
     (r"province|\bstate\b", "contact.province_state"),
     (r"^country", "contact.country"),
     (r"sponsor", "__sponsorship"),
@@ -83,7 +83,18 @@ RULES: list[tuple[str, str]] = [
 
 
 def _special(key: str, question: str, job_location: str) -> str:
+    # ATS locations often omit the country (e.g. San Francisco, California).
     us = bool(re.search(r"\b(us|u\.s\.|united states|usa|america)\b", question.lower() + " " + job_location.lower()))
+    if not re.search(r"\bcanada\b", question, re.I):
+        us = us or bool(re.search(
+            r",\s*(alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|"
+            r"hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|"
+            r"michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|"
+            r"new mexico|new york|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|"
+            r"rhode island|south carolina|south dakota|tennessee|texas|utah|vermont|virginia|washington|"
+            r"west virginia|wisconsin|wyoming|district of columbia)\s*$", job_location, re.I))
+    if re.search(r"\bcanada\b", question, re.I):
+        us = False
     if key == "__full_name":
         return " ".join(x for x in [_a("contact.first_name"), _a("contact.last_name")] if x)
     if key == "__sponsorship":

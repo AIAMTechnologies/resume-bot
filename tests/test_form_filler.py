@@ -91,3 +91,64 @@ async def test_fills_real_form_and_skips_autofill(tmp_path, monkeypatch, chrome_
     assert vals == {"name": "Ammar Alam", "email": "a@example.com", "phone": "647-555-0100",
                     "resume": 1, "af": 0, "auth": "y", "consent": True}, vals
     assert "Name*" in filled or "Name" in " ".join(filled)
+
+
+ASHBY_CONTROLS = '''<form>
+<div class="ashby-application-form-field-entry">
+<label class="_required_abc">Location</label>
+<input role="combobox" aria-autocomplete="list" oninput="document.querySelector('[role=listbox]').hidden=false">
+<div role="listbox" hidden><div role="option" onclick="document.querySelector('input').value=this.innerText;this.parentNode.hidden=true">Toronto, Ontario, Canada</div></div>
+</div>
+<div class="ashby-application-form-field-entry">
+<label class="_required_abc">Can you attend Anchor Days?</label>
+<div class="ashby-application-form-input-yesno">
+<button type="button" class="ashby-application-form-input-yesno-option" data-option="yes" aria-pressed="false" onclick="this.setAttribute('aria-pressed','true')">Yes</button>
+<button type="button" class="ashby-application-form-input-yesno-option" data-option="no" aria-pressed="false" onclick="this.setAttribute('aria-pressed','true')">No</button>
+<input type="checkbox" style="display:none">
+</div></div></form>'''
+
+
+@pytest.mark.parametrize('unknown', [False, True])
+async def test_ashby_required_location_and_button_questions(tmp_path, chrome_page, unknown):
+    from resumebot.sources import forms
+    from resumebot.sources.base import NeedsInput
+    from resumebot.engine.questions import NeedsHuman
+    seen = []
+    async def answer(f):
+        seen.append(f)
+        if f.label == 'Location':
+            assert not f.options  # unrelated Yes/No buttons are not location choices
+            return 'Toronto'
+        if unknown:
+            raise NeedsHuman(f.label, '', f.options)
+        return 'No'
+    async with chrome_page.async_playwright() as pw:
+        browser = await pw.chromium.launch(channel='chrome', headless=True)
+        page = await browser.new_page()
+        await page.set_content(ASHBY_CONTROLS)
+        ctx = ApplyContext(job=None, page=page, human=FastHuman(page),
+                           materials=Materials(tmp_path/'unused', tmp_path/'unused'), answer=answer)
+        if unknown:
+            with pytest.raises(NeedsInput) as exc:
+                await forms.fill_form(ctx, 'form')
+            assert exc.value.questions == [('Can you attend Anchor Days?', '', ['Yes', 'No'])]
+            assert await page.locator('[aria-pressed=true]').count() == 0
+        else:
+            await forms.fill_form(ctx, 'form')
+            assert await page.locator('[data-option=no]').get_attribute('aria-pressed') == 'true'
+        assert await page.locator('input[role=combobox]').input_value() == 'Toronto, Ontario, Canada'
+        assert [f.required for f in seen] == [True, True]
+        await browser.close()
+
+
+async def test_unmatched_combobox_does_not_press_enter(chrome_page):
+    from types import SimpleNamespace
+    from resumebot.sources import forms
+    async with chrome_page.async_playwright() as pw:
+        browser = await pw.chromium.launch(channel='chrome', headless=True)
+        page = await browser.new_page()
+        await page.set_content('<form onsubmit="window.submitted=true;return false"><input role="combobox"></form>')
+        ctx = SimpleNamespace(page=page, human=FastHuman(page))
+        assert not await forms._pick_combobox(ctx, page.locator('input'), 'Missing city')
+        assert not await page.evaluate('Boolean(window.submitted)')
+        await browser.close()

@@ -51,8 +51,13 @@ SCAN_JS = r"""
       const prev = p.previousElementSibling; if (prev && textOf(prev)) return textOf(prev); p = p.parentElement; }
     return '';
   };
-  const isReq = el => el.required || el.getAttribute('aria-required') === 'true' ||
-    /\*\s*$/.test(labelFor(el)) || !!el.closest('[class*=required i]');
+  const isReq = el => {
+    const entry = el.closest('.ashby-application-form-field-entry');
+    const label = entry?.querySelector('label');
+    return !!(el.required || el.getAttribute('aria-required') === 'true' ||
+      /\*\s*$/.test(labelFor(el)) || /\*\s*$/.test(groupLabel(el)) ||
+      el.closest('[class*=required i]') || label?.matches('[class*=required i]'));
+  };
   const out = []; const groups = {}; let n = start;
   root.querySelectorAll('input, select, textarea').forEach(el => {
     const type = (el.getAttribute('type') || el.tagName).toLowerCase();
@@ -75,6 +80,16 @@ SCAN_JS = r"""
     if (el.tagName === 'SELECT') f.options = [...el.options].filter(o => o.value && !/^(select|choose|--|please)/i.test(o.text.trim())).map(o => o.text.trim());
     if (f.role === 'combobox' || el.getAttribute('aria-autocomplete') === 'list') f.kind = 'combobox';
     out.push(f);
+  });
+  // Ashby yes/no controls are buttons backed by an invisible checkbox.
+  root.querySelectorAll('.ashby-application-form-input-yesno').forEach(group => {
+    const buttons = [...group.querySelectorAll('button[data-option]')].filter(vis);
+    if (!buttons.length) return;
+    const entry = group.closest('.ashby-application-form-field-entry');
+    const ids = buttons.map(el => { const id = String(n++); el.setAttribute('data-rb-id', id); return id; });
+    out.push({kind: 'radio', label: textOf(entry?.querySelector('label') || group),
+      required: isReq(buttons[0]), options: buttons.map(el => clean(el.innerText)), ids,
+      checked: buttons.filter(el => el.getAttribute('aria-pressed') === 'true').map(el => clean(el.innerText))});
   });
   Object.values(groups).forEach(g => out.push(g));
   return out;
@@ -110,19 +125,20 @@ async def _clickable(ctx: ApplyContext, loc: "Locator") -> "Locator":
 async def _combobox_options(ctx: ApplyContext, loc: "Locator") -> list[str]:
     await ctx.human.click(loc)
     await asyncio.sleep(random.uniform(0.4, 0.9))
-    opts = await ctx.page.locator("[role=listbox] [role=option], [class*=option]:visible").all_inner_texts()
+    opts = await ctx.page.locator("[role=option]:visible, [class*=option]:visible:not(.ashby-application-form-input-yesno-option)").all_inner_texts()
     await ctx.page.keyboard.press("Escape")
     return [o.strip() for o in opts if o.strip()][:60]
 
 
-async def _pick_combobox(ctx: ApplyContext, loc: "Locator", answer: str) -> None:
+async def _pick_combobox(ctx: ApplyContext, loc: "Locator", answer: str) -> bool:
     await ctx.human.type(loc, answer[:40], typos=False)
     await asyncio.sleep(random.uniform(0.6, 1.2))
-    option = ctx.page.locator("[role=listbox] [role=option], [class*=option]:visible").filter(has_text=answer).first
+    option = ctx.page.locator("[role=option]:visible, [class*=option]:visible:not(.ashby-application-form-input-yesno-option)").filter(has_text=answer).first
     if await option.count():
         await ctx.human.click(option)
-    else:
-        await ctx.page.keyboard.press("Enter")
+        return True
+    await ctx.page.keyboard.press("Escape")
+    return False
 
 
 AUTOFILL_RE = re.compile(r"autofill|auto-fill|parse your resume|import from", re.I)
@@ -193,7 +209,9 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
                 answer = await ctx.answer(Field(label, "radio", f["options"], f["required"]))
                 if not answer:
                     continue
-                idx = f["options"].index(answer) if answer in f["options"] else 0
+                if answer not in f["options"]:
+                    raise NeedsHuman(label, answer, f["options"])
+                idx = f["options"].index(answer)
                 await ctx.human.click(await _clickable(ctx, ctx.page.locator(f'[data-rb-id="{f["ids"][idx]}"]')))
                 filled[label] = answer
                 continue
@@ -230,7 +248,8 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
                 options = await _combobox_options(ctx, loc)
                 answer = await ctx.answer(Field(label, "select" if options else "text", options or None, f["required"]))
                 if answer:
-                    await _pick_combobox(ctx, loc, answer)
+                    if not await _pick_combobox(ctx, loc, answer):
+                        raise NeedsHuman(label, answer, options)
                     filled[label] = answer
             else:
                 answer = await ctx.answer(Field(label, kind, None, f["required"]))

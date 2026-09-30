@@ -63,3 +63,9 @@ async def test_custom_answer_beats_generic_rule(monkeypatch):
     ans = Answerer("Engineer", "Acme", "desc", "Remote - USA")
     assert await ans(Field("What type of visa sponsorship will you require?", "textarea")) == "TN status under USMCA"
     assert await ans(Field("Will you require visa sponsorship?", "radio", ["Yes", "No"])) == "Yes"
+
+
+def test_ashby_location_and_sponsorship_rules():
+    assert from_rules(Field('Location')) == questions._a('contact.city')
+    assert from_rules(Field('Will you require sponsorship?'), 'San Francisco, California') == 'Yes'
+    assert from_rules(Field('Are you legally authorized to work in Canada?'), 'San Francisco, California') == 'Yes'
