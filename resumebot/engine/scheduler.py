@@ -35,6 +35,8 @@ async def _guard(name: str, coro_fn, interval: float):
 
 async def discovery_loop():
     async def run():
+        if db.kv_get("global_pause"):
+            return "Global pause is on"
         for name, cfg in settings().pacing.sources.items():
             if not cfg.enabled or name in ("workday",):
                 continue
@@ -55,7 +57,11 @@ async def discovery_loop():
 
 
 async def triage_loop():
-    await _guard("triage", pipeline.triage_new, 60)
+    async def run():
+        if db.kv_get("global_pause"):
+            return "Global pause is on"
+        return await pipeline.triage_new()
+    await _guard("triage", run, 60)
 
 
 async def source_loop(name: str):
