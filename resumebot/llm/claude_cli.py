@@ -39,9 +39,9 @@ def find_claude_cli() -> str | None:
 class ClaudeCLI(LLM):
     name = "claude_cli"
 
-    def __init__(self, concurrency: int = 2, timeout: float = 300):
+    def __init__(self, concurrency: int = 2, timeout: float = 300, model: str = ""):
         self.path = find_claude_cli()
-        self.model = env().llm_model
+        self.model = model or env().llm_model
         self.timeout = timeout
         self._sem = asyncio.Semaphore(concurrency)
         self._cwd = tempfile.mkdtemp(prefix="resumebot-llm-")
@@ -49,7 +49,9 @@ class ClaudeCLI(LLM):
         if env().claude_code_oauth_token:
             self._env["CLAUDE_CODE_OAUTH_TOKEN"] = env().claude_code_oauth_token
 
-    async def complete(self, prompt: str, system: str = "", max_tokens: int = 4000) -> str:
+    async def complete(self, prompt: str, system: str = "", max_tokens: int = 4000, context: str = "") -> str:
+        if context:
+            prompt = f"{context}\n\n{prompt}"
         if not self.path:
             raise LLMError("Claude Code CLI not found. Install it or set CLAUDE_CLI_PATH in .env.")
         args = [self.path, *_BASE_ARGS, "--model", self.model]

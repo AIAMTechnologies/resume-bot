@@ -116,16 +116,14 @@ def _verify(content: dict, items_by_id: dict[int, Any]) -> list[str]:
 async def tailor(job: Job, contact: dict, extra_instruction: str = "") -> TailoredResume:
     items = master.all_items()
     items_by_id = {i.id: i for i in items}
-    prompt = f"""MASTER PROFILE (ids in brackets):
-{master.render(items)}
-
-JOB: {job.title} at {job.company} ({job.location})
+    context = f"MASTER PROFILE (ids in brackets):\n{master.render(items)}"
+    prompt = f"""JOB: {job.title} at {job.company} ({job.location})
 <<<
 {job.description[:15000]}
 >>>
 {extra_instruction}
 {TAILOR_FORMAT}"""
-    content = await complete_json(prompt, system=TAILOR_SYSTEM, max_tokens=8000)
+    content = await complete_json(prompt, system=TAILOR_SYSTEM, max_tokens=8000, context=context)
     dropped = _verify(content, items_by_id)
     keywords = content.get("jd_keywords", [])
 
@@ -227,8 +225,8 @@ profile only."""
 async def outreach_note(job: Job) -> str:
     from ..llm import get_llm
     note = (await get_llm().complete(
-        f"PROFILE:\n{master.render(with_ids=False)[:6000]}\n\nROLE: {job.title} at {job.company}\n"
-        f"{job.description[:3000]}\n\nWrite only the note.", system=OUTREACH_SYSTEM, max_tokens=300)).strip()
+        f"ROLE: {job.title} at {job.company}\n{job.description[:3000]}\n\nWrite only the note.",
+        system=OUTREACH_SYSTEM, max_tokens=300, context=master.prompt_context())).strip()
     return note[:300]
 
 
@@ -242,6 +240,6 @@ async def cover_letter(job: Job, contact: dict) -> str:
     from ..llm import get_llm
     name = " ".join(x for x in [contact.get("first_name"), contact.get("last_name")] if x)
     return (await get_llm().complete(
-        f"CANDIDATE: {name}\nPROFILE:\n{master.render(with_ids=False)}\n\nJOB: {job.title} at "
-        f"{job.company}\n{job.description[:8000]}\n\nWrite the cover letter body only (no address block).",
-        system=COVER_SYSTEM, max_tokens=1200)).strip()
+        f"CANDIDATE: {name}\nJOB: {job.title} at {job.company}\n{job.description[:8000]}\n\n"
+        "Write the cover letter body only (no address block).",
+        system=COVER_SYSTEM, max_tokens=1200, context=master.prompt_context())).strip()

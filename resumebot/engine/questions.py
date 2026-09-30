@@ -169,10 +169,7 @@ in their profile and standard answers. You are careful and honest.
 
 async def from_llm(f: Field, job_title: str, company: str, description: str) -> tuple[str, bool, float]:
     std = {k: v for k, v in answers().items() if k != "eeo"}
-    result = await complete_json(f"""CANDIDATE PROFILE:
-{master.render(with_ids=False)}
-
-STANDARD ANSWERS: {std}
+    result = await complete_json(f"""STANDARD ANSWERS: {std}
 
 JOB: {job_title} at {company}
 {description[:4000]}
@@ -182,7 +179,8 @@ FIELD TYPE: {f.kind}
 OPTIONS: {f.options or 'free text'}
 
 Return {{"answer": "...", "grounded": true|false, "confidence": 0.0-1.0, "reason": "short"}}""",
-        system=ANSWER_SYSTEM, max_tokens=800)
+        system=ANSWER_SYSTEM, max_tokens=800, context=master.prompt_context(),
+        fast=f.kind != "textarea")  # written answers are read by people; use the main model
     return str(result.get("answer", "")), bool(result.get("grounded")), float(result.get("confidence", 0))
 
 

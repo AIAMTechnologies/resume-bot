@@ -92,15 +92,12 @@ in their profile. 85+: meets nearly all requirements. 70-84: meets most must-hav
 
 
 async def score(job: Job) -> tuple[int, list[str], list[str]]:
-    result = await complete_json(f"""CANDIDATE PROFILE:
-{master.render(with_ids=False)[:20000]}
-
-JOB: {job.title} at {job.company} — {job.location} {job.salary}
+    result = await complete_json(f"""JOB: {job.title} at {job.company} — {job.location} {job.salary}
 {job.description[:10000]}
 
 Return {{"score": 0-100, "reasons": ["up to 4 short reasons"], "missing": ["must-have requirements the candidate lacks"],
  "hard_blocker": "empty or e.g. 'requires US citizenship / security clearance / 10+ yrs'"}}""",
-        system=SCORE_SYSTEM, max_tokens=800)
+        system=SCORE_SYSTEM, max_tokens=800, context=master.prompt_context(), fast=True)
     s = int(result.get("score", 0))
     reasons = list(result.get("reasons", []))
     if result.get("hard_blocker"):

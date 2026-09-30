@@ -84,7 +84,7 @@ class FakeLLM:
     def __init__(self):
         self.calls: list[str] = []
 
-    async def complete(self, prompt: str, system: str = "", max_tokens: int = 1000) -> str:
+    async def complete(self, prompt: str, system: str = "", max_tokens: int = 1000, context: str = "") -> str:
         from resumebot.profile import master
         if "technical recruiter" in system:
             self.calls.append("score")
@@ -134,7 +134,7 @@ def world(monkeypatch, tmp_path):
     for mod in (config, pipeline, forms, questions):
         monkeypatch.setattr(mod, "answers", lambda: ANSWERS)
     llm = FakeLLM()
-    monkeypatch.setattr(llm_mod, "get_llm", lambda: llm)
+    monkeypatch.setattr(llm_mod, "get_llm", lambda fast=False: llm)
 
     with db.session() as s:  # fresh profile for every scenario
         for it in s.exec(db.select(ProfileItem)):
