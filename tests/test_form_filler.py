@@ -47,6 +47,13 @@ class FastHuman:
         await loc.set_input_files(path)
 
 
+async def _launch(pw):
+    try:
+        return await pw.chromium.launch(channel="chrome", headless=True)
+    except Exception:  # Google Chrome not installed; Playwright's own Chromium is fine for this page
+        return await pw.chromium.launch(headless=True)
+
+
 @pytest.fixture
 def chrome_page():
     pw_api = pytest.importorskip("playwright.async_api")
@@ -70,7 +77,7 @@ async def test_fills_real_form_and_skips_autofill(tmp_path, monkeypatch, chrome_
 
     try:
         async with chrome_page.async_playwright() as pw:
-            browser = await pw.chromium.launch(channel="chrome", headless=True)
+            browser = await _launch(pw)
             page = await browser.new_page()
             await page.goto(page_file.as_uri())
             ctx = ApplyContext(job=None, page=page, human=FastHuman(page),
@@ -91,3 +98,43 @@ async def test_fills_real_form_and_skips_autofill(tmp_path, monkeypatch, chrome_
     assert vals == {"name": "Ammar Alam", "email": "a@example.com", "phone": "647-555-0100",
                     "resume": 1, "af": 0, "auth": "y", "consent": True}, vals
     assert "Name*" in filled or "Name" in " ".join(filled)
+
+
+CONSENT_PAGE = """<!doctype html><html><body><form id="application">
+  <label for="country">Country*</label>
+  <select id="country" required><option value="0">Please select</option><option value="ca">Canada</option></select>
+  <label><input type="checkbox" id="consent" required> I agree to the privacy policy and processing of my data</label>
+</form></body></html>"""
+
+
+async def test_consent_uses_your_answer_and_placeholder_select_is_filled(tmp_path, monkeypatch, chrome_page):
+    from resumebot.engine import questions
+    from resumebot.sources import forms
+    monkeypatch.setattr(forms, "answers", lambda: {"application_consent": False})
+    questions.remember("I agree to the privacy policy and processing of my data", "check")
+    page_file = tmp_path / "form.html"
+    page_file.write_text(CONSENT_PAGE)
+    asked = []
+
+    async def answer(f: Field) -> str:
+        asked.append(f.label)
+        return "Canada" if f.label.startswith("Country") else ""
+
+    try:
+        async with chrome_page.async_playwright() as pw:
+            browser = await _launch(pw)
+            page = await browser.new_page()
+            await page.goto(page_file.as_uri())
+            ctx = ApplyContext(job=None, page=page, human=FastHuman(page),
+                               materials=Materials(tmp_path / "r.pdf", tmp_path / "r.docx"), answer=answer)
+            await forms.fill_form(ctx, "form")
+            vals = await page.evaluate("""() => ({country: document.getElementById('country').value,
+                consent: document.getElementById('consent').checked})""")
+            await browser.close()
+    except Exception as e:
+        if "Executable" in str(e):
+            pytest.skip(f"Chromium unavailable: {e}")
+        raise
+
+    assert vals == {"country": "ca", "consent": True}, vals
+    assert any(a.startswith("Country") for a in asked)

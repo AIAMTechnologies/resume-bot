@@ -112,14 +112,17 @@ async def triage_new(limit: int = 25) -> None:
 # ---------------- applying ----------------
 
 def company_recent_count(company: str, days: int = 90) -> int:
-    """Applications submitted or prepared for this company recently (normalized name)."""
+    """Applications submitted or prepared for this company recently (normalized name).
+
+    Manual cards count only while pending: once you tap "I applied" they become an Application.
+    """
     from datetime import timedelta
     key = matcher.norm(company)
     since = utcnow() - timedelta(days=days)
     with db.session() as s:
         apps = s.exec(select(Application.company).where(Application.submitted_at >= since)).all()
         cards = s.exec(select(Job.company).join(ReviewItem, ReviewItem.job_id == Job.id).where(
-            ReviewItem.kind == "manual", ReviewItem.created_at >= since, ReviewItem.status != "skipped")).all()
+            ReviewItem.kind == "manual", ReviewItem.created_at >= since, ReviewItem.status == "pending")).all()
     return sum(1 for c in [*apps, *cards] if matcher.norm(c) == key)
 
 
@@ -225,18 +228,26 @@ def _reroute(job: Job, url: str) -> Job | None:
 
 async def apply_job(job: Job, dry_run: bool = False) -> Application | None:
     src = SOURCES[job.source]
+    prior_status, prior_reason = job.status, job.status_reason
     job.status, job.updated_at = JobStatus.APPLYING, utcnow()
     db.save(job)
     try:
         materials, tr = await prepare(job)
     except Exception as e:  # noqa: BLE001
-        job.status, job.status_reason = JobStatus.FAILED, f"tailoring failed: {e}"[:300]
+        job.status, job.status_reason = (prior_status, prior_reason) if dry_run else (
+            JobStatus.FAILED, f"tailoring failed: {e}"[:300])
         db.save(job)
         db.log(f"Tailoring failed: {e}", level="error", source=job.source, kind="tailor", job_id=job.id)
         return None
 
     if job.source in ASSIST_SOURCES or job.source in ("workday", "external"):
         # Prepared for you, submitted by you — no browser, no LinkedIn session involved.
+        if dry_run:
+            job.status, job.status_reason, job.updated_at = prior_status, prior_reason, utcnow()
+            db.save(job)
+            db.log(f"Dry run: materials prepared for {job.title} @ {job.company} (ATS {tr.report.score}); "
+                   "nothing sent", source=job.source, kind="apply", job_id=job.id)
+            return None
         outreach = ""
         if job.source == "linkedin":
             try:
@@ -246,7 +257,8 @@ async def apply_job(job: Job, dry_run: bool = False) -> Application | None:
         job.status, job.status_reason = JobStatus.MANUAL, "ready for you to submit"
         job.updated_at = utcnow()
         db.save(job)
-        await review.manual_review(job, "LinkedIn Easy Apply" if job.source == "linkedin" else f"{job.source} site",
+        await review.manual_review(job, "LinkedIn Easy Apply" if job.source == "linkedin" and job.easy_apply
+                                   else f"{job.source} site",
                                    str(materials.resume_pdf), materials.cover_letter, outreach)
         db.log(f"Prepared for you: {job.title} @ {job.company} (ATS {tr.report.score})",
                level="success", source=job.source, kind="apply", job_id=job.id)
@@ -278,8 +290,10 @@ async def apply_job(job: Job, dry_run: bool = False) -> Application | None:
                             f"match {job.match_score}, ATS {app.ats_score})")
         else:
             app.error = result.note
-            job.status = JobStatus.QUEUED if dry_run else JobStatus.FAILED
-            job.status_reason = result.note
+            if dry_run:
+                job.status, job.status_reason = prior_status, prior_reason
+            else:
+                job.status, job.status_reason = JobStatus.FAILED, result.note
             db.log(f"Not submitted: {job.title} @ {job.company} — {result.note}",
                    level="info" if dry_run else "warning", source=job.source, kind="apply", job_id=job.id)
     except NeedsInput as ni:

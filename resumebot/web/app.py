@@ -246,7 +246,7 @@ async def settings_page(request: Request):
 @app.get("/file")
 async def file(path: str):
     p = Path(path).resolve()
-    if not str(p).startswith(str(DATA_DIR.resolve())) or not p.exists():
+    if not p.is_relative_to(DATA_DIR.resolve()) or not p.is_file():
         raise HTTPException(404)
     return FileResponse(p)
 

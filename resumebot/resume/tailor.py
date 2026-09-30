@@ -197,16 +197,25 @@ async def tailor_with_retry(job: Job, contact: dict) -> TailoredResume:
             "and projects, and use fewer bullets for older roles."))
     if _pages(result) > 2:
         result = _trim_to_fit(result, job, contact)
-    attempts = 0
-    while result.report.keyword_coverage < cfg.min_keyword_coverage and attempts < cfg.retailor_attempts:
+    best, attempts = result, 0
+    while best.report.keyword_coverage < cfg.min_keyword_coverage and attempts < cfg.retailor_attempts:
         attempts += 1
-        supportable = [k for k in result.report.missing if k not in result.unsupported]
+        supportable = [k for k in best.report.missing if k not in best.unsupported]
         if not supportable:
             break
         result = await tailor(job, contact, extra_instruction=(
             "A previous draft missed these job keywords that the master profile CAN support — work "
             f"them in naturally where truthful: {', '.join(supportable)}"))
-    return result
+        if _pages(result) > 2:
+            result = _trim_to_fit(result, job, contact)
+        if result.report.keyword_coverage > best.report.keyword_coverage:
+            best = result
+    if best is not result:
+        # Every draft is written to the same files; put the best one back on disk.
+        render.render_pdf(best.content, contact, best.pdf)
+        render.render_docx(best.content, contact, best.docx)
+        best.report = ats.check(best.pdf, best.docx, best.jd_keywords, contact)
+    return best
 
 
 OUTREACH_SYSTEM = """Write a LinkedIn connection note (max 280 characters) from a candidate to the

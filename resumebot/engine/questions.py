@@ -72,13 +72,18 @@ RULES: list[tuple[str, str]] = [
     (r"years of (professional |total )?experience$|total years", "logistics.years_experience_total"),
     (r"highest (level of )?education|degree", "logistics.highest_education"),
     (r"\bgender\b|\bsex\b", "eeo.gender"),
-    (r"race|ethnic", "eeo.race_ethnicity"),
+    (r"\brace\b|ethnic", "eeo.race_ethnicity"),
     (r"veteran", "eeo.veteran_status"),
     (r"disabilit", "eeo.disability"),
     (r"pronoun", "eeo.pronouns"),
-    (r"remote", "logistics.open_to_remote"),
-    (r"hybrid", "logistics.open_to_hybrid"),
-    (r"on-?site|in (the )?office", "logistics.open_to_onsite"),
+    # Work-arrangement questions only — not "experience with remote access / hybrid cloud / Office".
+    (r"(open|willing|comfortable|able) to .{0,20}\bremote|\bremote(ly)? (work|role|position|job)|work(ing)? remotely",
+     "logistics.open_to_remote"),
+    (r"(open|willing|comfortable|able) to .{0,20}\bhybrid|\bhybrid (work|role|position|job|schedule|model|arrangement)",
+     "logistics.open_to_hybrid"),
+    (r"(open|willing|comfortable|able) to .{0,30}(\bon ?site|in (the )?office)|"
+     r"\bon ?site (work|role|position|job)|(work|commute|come) (in|into|to) (the |our )?office",
+     "logistics.open_to_onsite"),
 ]
 
 

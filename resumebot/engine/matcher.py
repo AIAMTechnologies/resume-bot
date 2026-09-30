@@ -31,7 +31,9 @@ def location_ok(job: Job) -> tuple[bool, str]:
             return False, "remote not wanted"
         regions = [r.lower() for r in loc.remote_regions]
         restricted = re.search(r"remote\s*[-–(,]\s*([A-Za-z .]+)", job.location or "", re.I)
-        if restricted and regions and not any(r in restricted.group(1).lower() for r in regions + ["us", "usa", "ca"]):
+        where = restricted.group(1).lower() if restricted else ""
+        if restricted and regions and not any(re.search(rf"\b{re.escape(r)}\b", where)
+                                              for r in regions + ["us", "usa", "ca"]):
             return False, f"remote restricted to {restricted.group(1).strip()}"
         return True, "remote"
     low = (job.location or "").lower()
@@ -70,6 +72,8 @@ def prefilter(job: Job) -> tuple[bool, str]:
         return False, "too old"
     if not title_ok(job.title, target_titles(), t.title_keywords):
         return False, "title not in targets"
+    if job.source == "linkedin" and job.apply_url and not job.easy_apply:
+        return False, "applies on company ATS (tracked there)"
     ok, why = location_ok(job)
     if not ok:
         return False, why

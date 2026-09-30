@@ -12,7 +12,7 @@ import re
 from typing import TYPE_CHECKING
 
 from ..config import answers
-from ..engine.questions import Field, NeedsHuman
+from ..engine.questions import Field, NeedsHuman, from_memory
 from .base import ApplyContext, NeedsInput
 
 if TYPE_CHECKING:
@@ -53,6 +53,7 @@ SCAN_JS = r"""
   };
   const isReq = el => el.required || el.getAttribute('aria-required') === 'true' ||
     /\*\s*$/.test(labelFor(el)) || !!el.closest('[class*=required i]');
+  const isPlaceholder = o => !o || !o.value || /^(select|choose|--|please)/i.test(o.text.trim());
   const out = []; const groups = {}; let n = start;
   root.querySelectorAll('input, select, textarea').forEach(el => {
     const type = (el.getAttribute('type') || el.tagName).toLowerCase();
@@ -70,9 +71,11 @@ SCAN_JS = r"""
       return;
     }
     const f = { id, kind: el.tagName === 'SELECT' ? 'select' : el.tagName === 'TEXTAREA' ? 'textarea' : type,
-      label: labelFor(el), required: isReq(el), value: el.type === 'checkbox' ? String(el.checked) : (el.value || ''),
+      label: labelFor(el), required: isReq(el),
+      value: el.type === 'checkbox' ? String(el.checked)
+        : el.tagName === 'SELECT' ? (isPlaceholder(el.options[el.selectedIndex]) ? '' : el.value) : (el.value || ''),
       role: el.getAttribute('role') || '', name: el.name || '', accept: el.getAttribute('accept') || '' };
-    if (el.tagName === 'SELECT') f.options = [...el.options].filter(o => o.value && !/^(select|choose|--|please)/i.test(o.text.trim())).map(o => o.text.trim());
+    if (el.tagName === 'SELECT') f.options = [...el.options].filter(o => !isPlaceholder(o)).map(o => o.text.trim());
     if (f.role === 'combobox' || el.getAttribute('aria-autocomplete') === 'list') f.kind = 'combobox';
     out.push(f);
   });
@@ -83,6 +86,14 @@ SCAN_JS = r"""
 
 CONSENT_RE = re.compile(r"(i )?(agree|consent|acknowledge|certify|confirm).{0,80}(privacy|terms|policy|accurate|true|processing|data)", re.I)
 SKIP_CHECKBOX_RE = re.compile(r"follow|newsletter|marketing|job alerts?|subscribe|updates", re.I)
+
+
+def _consent_answer(label: str) -> bool | None:
+    """Your answer from review for a consent box: True = check, False = leave it, None = not answered yet."""
+    answer = from_memory(Field(label, "checkbox"))
+    if not answer:
+        return None
+    return bool(re.match(r"\s*(check|yes|y\b|agree|i agree|ok|true)", answer, re.I))
 
 
 def _file_role(label: str, name: str) -> str:
@@ -206,11 +217,12 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
                         await ctx.human.click(await _clickable(ctx, loc))  # un-follow / un-subscribe
                     continue
                 if CONSENT_RE.search(label):
-                    if not consent_ok:
+                    agree = consent_ok or _consent_answer(label)
+                    if agree is None:
                         raise NeedsHuman(label, "check", ["check", "leave unchecked"])
-                    if not checked:
+                    if agree and not checked:
                         await ctx.human.click(await _clickable(ctx, loc))
-                    filled[label] = "checked"
+                    filled[label] = "checked" if agree else "unchecked"
                     continue
                 if f["required"] and not checked:
                     answer = await ctx.answer(Field(label, "checkbox", ["Yes", "No"], True))

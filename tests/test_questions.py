@@ -63,3 +63,18 @@ async def test_custom_answer_beats_generic_rule(monkeypatch):
     ans = Answerer("Engineer", "Acme", "desc", "Remote - USA")
     assert await ans(Field("What type of visa sponsorship will you require?", "textarea")) == "TN status under USMCA"
     assert await ans(Field("Will you require visa sponsorship?", "radio", ["Yes", "No"])) == "Yes"
+
+
+def test_work_arrangement_and_eeo_rules_need_the_real_question(monkeypatch):
+    from resumebot import config
+    base = config.answers()
+    monkeypatch.setattr(questions, "answers", lambda: {
+        **base, "logistics": {**base["logistics"], "open_to_remote": "Yes", "open_to_hybrid": "Yes",
+                              "open_to_onsite": "Yes"},
+        "eeo": {**base["eeo"], "race_ethnicity": "Decline to answer"}})
+    assert from_rules(Field("Are you open to remote work?")) == "Yes"
+    assert from_rules(Field("Are you willing to work on-site in Toronto?")) == "Yes"
+    assert from_rules(Field("Race / Ethnicity")) == "Decline to answer"
+    for label in ("Experience with remote access tools?", "Describe your experience with packet tracing",
+                  "Have you worked with hybrid cloud environments?", "Years of experience in Office 365"):
+        assert from_rules(Field(label)) is None, label
