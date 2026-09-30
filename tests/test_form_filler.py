@@ -94,6 +94,7 @@ async def test_fills_real_form_and_skips_autofill(tmp_path, monkeypatch, chrome_
 
 
 ASHBY_CONTROLS = '''<form>
+<label class=some_option>Prefer not to say</label>
 <div class="ashby-application-form-field-entry">
 <label class="_required_abc">Location</label>
 <input role="combobox" aria-autocomplete="list" oninput="document.querySelector('[role=listbox]').hidden=false">

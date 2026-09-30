@@ -125,7 +125,7 @@ async def _clickable(ctx: ApplyContext, loc: "Locator") -> "Locator":
 async def _combobox_options(ctx: ApplyContext, loc: "Locator") -> list[str]:
     await ctx.human.click(loc)
     await asyncio.sleep(random.uniform(0.4, 0.9))
-    opts = await ctx.page.locator("[role=option]:visible, [class*=option]:visible:not(.ashby-application-form-input-yesno-option)").all_inner_texts()
+    opts = await ctx.page.locator("[role=option]:visible, [role=listbox] [class*=option]:visible").all_inner_texts()
     await ctx.page.keyboard.press("Escape")
     return [o.strip() for o in opts if o.strip()][:60]
 
@@ -133,7 +133,7 @@ async def _combobox_options(ctx: ApplyContext, loc: "Locator") -> list[str]:
 async def _pick_combobox(ctx: ApplyContext, loc: "Locator", answer: str) -> bool:
     await ctx.human.type(loc, answer[:40], typos=False)
     await asyncio.sleep(random.uniform(0.6, 1.2))
-    option = ctx.page.locator("[role=option]:visible, [class*=option]:visible:not(.ashby-application-form-input-yesno-option)").filter(has_text=answer).first
+    option = ctx.page.locator("[role=option]:visible, [role=listbox] [class*=option]:visible").filter(has_text=answer).first
     if await option.count():
         await ctx.human.click(option)
         return True
