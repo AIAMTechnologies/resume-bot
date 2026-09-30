@@ -1,0 +1,33 @@
+{# Import with: {% from "_macros.html" import job_actions, app_actions with context %} #}
+
+{% macro job_actions(j) %}
+{% if j.status in ['applied', 'applying'] %}
+  <span class="small muted">{{ 'Submitting…' if j.status == 'applying' else 'Submitted' }}</span>
+{% else %}
+<div class="actions">
+  {% for key in quick_outcomes %}{% set o = job_outcomes[key] %}
+  <form class="inline" method="post" action="/jobs/{{ j.id }}/outcome/{{ key }}">
+    <button class="btn sm" title="{{ o.label }}">{{ o.emoji }} {{ o.label }}</button></form>
+  {% endfor %}
+  <details class="more">
+    <summary class="btn sm" aria-label="More actions for job {{ j.id }}">More ▾</summary>
+    <div class="menu">
+      {% for key, o in job_outcomes.items() if key not in quick_outcomes and not (key == 'queue' and j.status == 'queued') %}
+      <form method="post" action="/jobs/{{ j.id }}/outcome/{{ key }}"><button class="menu-item">{{ o.emoji }} {{ o.label }}</button></form>
+      {% endfor %}
+    </div>
+  </details>
+</div>
+{% endif %}
+{% endmacro %}
+
+{% macro app_actions(a) %}
+<div class="actions">
+  {% for status, (label, emoji) in app_outcomes.items() %}
+  <form class="inline" method="post" action="/applications/{{ a.id }}/status">
+    <input type="hidden" name="status" value="{{ status }}">
+    <button class="btn sm {{ 'on' if a.status == status }}" {{ 'aria-pressed=true' if a.status == status }}>{{ emoji }} {{ label }}</button>
+  </form>
+  {% endfor %}
+</div>
+{% endmacro %}

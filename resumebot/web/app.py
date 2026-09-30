@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from .. import db
 from ..config import CONFIG_DIR, DATA_DIR, env, settings
-from ..engine import actions, drafts, pipeline, review, stats
+from ..engine import actions, drafts, outcomes, pipeline, review, stats
 from ..engine.pacing import Gate, to_local
 from ..models import Application, Job, JobStatus, ProfileItem
 from ..profile import ingest, master
@@ -26,6 +26,10 @@ templates = Jinja2Templates(directory=HERE / "templates")
 templates.env.filters["local"] = lambda dt, fmt="%b %d %H:%M": to_local(dt).strftime(fmt) if dt else ""
 templates.env.globals["refresh"] = lambda: settings().dashboard.refresh_seconds
 templates.env.globals["sources"] = lambda: list(settings().pacing.sources)
+# Action buttons are available in every template, including HTMX partials.
+templates.env.globals["job_outcomes"] = outcomes.JOB_OUTCOMES
+templates.env.globals["quick_outcomes"] = outcomes.QUICK_JOB_OUTCOMES
+templates.env.globals["app_outcomes"] = outcomes.APP_OUTCOMES
 
 from .errors import install as install_diagnostics
 install_diagnostics(app, templates)
@@ -45,6 +49,9 @@ def background(coro) -> None:
 
 
 def page(request: Request, name: str, **ctx):
+    ctx.setdefault("global_pause", outcomes.global_paused())
+    ctx.setdefault("flash", request.query_params.get("msg", ""))
+    ctx.setdefault("flash_error", request.query_params.get("err", ""))
     ctx.setdefault("automatic", getattr(app.state, "automatic", False))
     ctx.setdefault("telegram_connected", db.kv_get("telegram_connected", False))
     ctx.setdefault("active", name.split(".")[0])
@@ -52,8 +59,17 @@ def page(request: Request, name: str, **ctx):
     return templates.TemplateResponse(request, name, ctx)
 
 
-def back(request: Request, fallback: str = "/") -> RedirectResponse:
-    return RedirectResponse(request.headers.get("referer") or fallback, status_code=303)
+def back(request: Request, fallback: str = "/", msg: str = "", err: str = "") -> RedirectResponse:
+    """Return to the page the button was on, with a one-line confirmation or error."""
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+    parts = urlsplit(request.headers.get("referer") or fallback)
+    query = [(k, v) for k, v in parse_qsl(parts.query) if k not in ("msg", "err")]
+    if msg:
+        query.append(("msg", msg))
+    if err:
+        query.append(("err", err))
+    url = urlunsplit(("", "", parts.path or "/", urlencode(query), parts.fragment))
+    return RedirectResponse(url, status_code=303)
 
 
 @app.get("/api/automation")
@@ -117,18 +133,12 @@ async def application_detail(request: Request, app_id: int):
 
 @app.post("/applications/{app_id}/status")
 async def set_app_status(request: Request, app_id: int, status: str = Form(...)):
-    allowed = {value for key, value in vars(db.models.AppStatus).items() if key.isupper()}
-    if status not in allowed:
-        raise HTTPException(400, "Unknown application status")
-    with db.session() as s:
-        a = s.get(Application, app_id)
-        if not a:
-            raise HTTPException(404)
-        a.status = status
-        s.add(a)
-        s.commit()
-    db.log(f"Marked {a.company} as {status}", kind="control", job_id=a.job_id)
-    return back(request)
+    try:
+        return back(request, msg=outcomes.record_application(app_id, status))
+    except (outcomes.NotFound, outcomes.BadRequest) as error:
+        raise HTTPException(error.status_code, str(error))
+    except outcomes.OutcomeError as error:
+        return back(request, err=str(error))
 
 
 @app.get("/jobs", response_class=HTMLResponse)
@@ -143,16 +153,11 @@ async def job_action(request: Request, job_id: int, action: str, version: str = 
         job = s.get(Job, job_id)
         if not job:
             raise HTTPException(404)
-    if action == "queue":
-        if actions.busy(job_id) or job.status in (JobStatus.APPLYING, JobStatus.APPLIED):
-            raise HTTPException(409, "Job is already applying or submitted")
-        job.status, job.status_reason = JobStatus.QUEUED, "queued by you"
-        db.save(job)
-    elif action == "skip":
-        if actions.busy(job_id) or job.status in (JobStatus.APPLYING, JobStatus.APPLIED):
-            raise HTTPException(409, "Job is already applying or submitted")
-        job.status, job.status_reason = JobStatus.SKIPPED, "skipped by you"
-        db.save(job)
+    if action in ("queue", "skip"):
+        try:
+            return back(request, "/jobs", msg=outcomes.record_job(job_id, "queue" if action == "queue" else "not_interested"))
+        except outcomes.OutcomeError as error:
+            return back(request, "/jobs", err=str(error))
     elif action in ("preview", "refresh", "apply-now", "dry-run"):
         try:
             actions.start(job_id, "apply" if action == "apply-now" else action, version)
@@ -162,6 +167,21 @@ async def job_action(request: Request, job_id: int, action: str, version: str = 
     else:
         raise HTTPException(400, "Unknown action")
     return back(request, "/jobs")
+
+
+@app.post("/jobs/{job_id}/outcome/{key}")
+async def job_outcome(request: Request, job_id: int, key: str):
+    try:
+        return back(request, "/jobs", msg=outcomes.record_job(job_id, key))
+    except (outcomes.NotFound, outcomes.BadRequest) as error:
+        raise HTTPException(error.status_code, str(error))
+    except outcomes.OutcomeError as error:
+        return back(request, "/jobs", err=str(error))
+
+
+@app.post("/control/global-pause")
+async def global_pause(request: Request, paused: str = Form(...)):
+    return back(request, msg=outcomes.set_global_pause(paused == "on"))
 
 
 @app.get("/jobs/{job_id}/preview", response_class=HTMLResponse)

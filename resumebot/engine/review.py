@@ -21,7 +21,8 @@ async def job_review(job: Job, reason: str) -> None:
     reasons = "\n".join(f"• {esc(r)}" for r in job.match_reasons[:4])
     item.telegram_message_id = await telegram.send(
         f"🤔 <b>Review</b> #{item.id}: {esc(reason)}\n{_job_line(job)}\n{reasons}",
-        [[("Preview & apply", f"preview:{job.id}"), ("⏭ Skip", f"rv:skip:{item.id}")]])
+        [[("Preview & apply", f"preview:{job.id}"), ("Open posting", job.apply_url or job.url)]]
+        + telegram.job_buttons(job.id))
     db.save(item)
 
 
@@ -36,7 +37,7 @@ async def question_reviews(job: Job, questions: list[tuple[str, str, list[str]]]
         item = db.save(ReviewItem(job_id=job.id, kind="question", question=question, proposed_answer=proposed,
                                   context=" | ".join(options)))
         buttons = [[(f"Use: {proposed[:30]}", f"rv:useproposed:{item.id}")]] if proposed else []
-        buttons.append([("⏭ Skip job", f"rv:skip:{item.id}")])
+        buttons += telegram.job_buttons(job.id, more=False)
         item.telegram_message_id = await telegram.send(
             f"❓ <b>Question</b> #{item.id} for {esc(job.title)} — {esc(job.company)}\n\n<b>{esc(question)}</b>"
             + (f"\nOptions: {esc(', '.join(options))}" if options else "")
@@ -68,8 +69,7 @@ async def manual_review(job: Job, reason: str, resume_pdf: str = "", cover_lette
     body += "\n\n" + ("Tap Easy Apply, attach the PDF above, submit — then tap ✅." if linkedin
                         else f"Reason: {esc(reason)}")
     item.telegram_message_id = await telegram.send(
-        body, [[("Open job", job.apply_url or job.url)], [("✅ I applied", f"rv:done:{item.id}"),
-                                                          ("⏭ Skip", f"rv:skip:{item.id}")]])
+        body, [[("Open job", job.apply_url or job.url)]] + telegram.job_buttons(job.id))
     db.save(item)
 
 

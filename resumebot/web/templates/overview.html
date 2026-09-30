@@ -3,8 +3,9 @@
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
   <h1 style="margin:0">Overview</h1>
   <div>
-    <form class="inline" method="post" action="/control/pause/all"><button class="btn">⏸ Pause all</button></form>
-    <form class="inline" method="post" action="/control/resume/all"><button class="btn">▶ Resume all</button></form>
+    <form class="inline" method="post" action="/control/global-pause">
+      <input type="hidden" name="paused" value="{{ 'off' if global_pause else 'on' }}">
+      <button class="btn {{ 'primary' if global_pause }}">{{ '▶️ Resume everything' if global_pause else '⏸ Pause everything' }}</button></form>
   </div>
 </div>
 

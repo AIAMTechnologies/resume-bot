@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import app_actions with context %}
 {% block content %}
 <p class="small"><a href="/applications">← Applications</a></p>
 <h1>{{ a.title }} — {{ a.company }}</h1>
@@ -14,11 +15,8 @@
       </div>
       {% if a.error %}<p class="st-failed">{{ a.error }}</p>{% endif %}
       {% if a.response_summary %}<p><b>Latest reply:</b> {{ a.response_summary }} <span class="muted small">{{ a.last_response_at|local }}</span></p>{% endif %}
-      <form method="post" action="/applications/{{ a.id }}/status" class="filters" style="margin:10px 0 0">
-        <span class="small muted">Set status:</span>
-        <select name="status">{% for s in ['submitted','confirmed','rejected','assessment','interview','offer','ghosted'] %}<option {{ 'selected' if a.status == s }}>{{ s }}</option>{% endfor %}</select>
-        <button class="btn sm">Save</button>
-      </form>
+      <div class="small muted" style="margin-top:10px">What happened since you applied?</div>
+      {{ app_actions(a) }}
     </div>
     <div class="card">
       <h2>Answers submitted</h2>

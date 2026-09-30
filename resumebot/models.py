@@ -22,6 +22,7 @@ class JobStatus:
     APPLIED = "applied"
     FAILED = "failed"
     MANUAL = "manual"          # human must apply (captcha, workday, unsupported form)
+    CLOSED = "closed"          # posting no longer available
 
 
 class Job(SQLModel, table=True):
@@ -62,6 +63,7 @@ class AppStatus:
     INTERVIEW = "interview"
     OFFER = "offer"
     GHOSTED = "ghosted"
+    WITHDRAWN = "withdrawn"
 
 
 class Application(SQLModel, table=True):

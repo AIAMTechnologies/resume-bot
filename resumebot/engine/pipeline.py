@@ -305,6 +305,7 @@ async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None 
                       resume_pdf=str(materials.resume_pdf), resume_docx=str(materials.resume_docx),
                       cover_letter=materials.cover_letter, ats_score=tr.report.score,
                       keyword_coverage=tr.report.keyword_coverage, status=AppStatus.FAILED)
+    applied_note = ""
     started = time.monotonic()
     answerer = Answerer(job.title, job.company, job.description, job.location)
     try:
@@ -323,8 +324,8 @@ async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None 
             job.status, job.status_reason = JobStatus.APPLIED, result.note
             db.log(f"✅ Applied: {job.title} @ {job.company} ({app.duration_seconds:.0f}s, ATS {app.ats_score})",
                    level="success", source=job.source, kind="apply", job_id=job.id)
-            telegram.notify(f"✅ Applied: <b>{esc(job.title)}</b> — {esc(job.company)} ({job.source}, "
-                            f"match {job.match_score}, ATS {app.ats_score})")
+            applied_note = (f"✅ Applied: <b>{esc(job.title)}</b> — {esc(job.company)} ({job.source}, "
+                            f"match {job.match_score}, ATS {app.ats_score})\nLater, tap what happened:")
         else:
             app.error = result.note
             if dry_run:
@@ -372,6 +373,8 @@ async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None 
     db.save(job)
     if app is not None and not dry_run:
         db.save(app)
+        if app.submitted_at and applied_note:
+            telegram.notify(applied_note, telegram.app_buttons(app.id))
     return app
 
 

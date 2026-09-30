@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import job_actions with context %}
 {% block content %}
 <h1>Jobs <span class="muted small">({{ jobs|length }} shown)</span></h1>
 <form class="filters" method="get">
@@ -19,10 +20,9 @@
     <td><span class="pill"><span class="dot" style="background: var(--s-{{ j.source }})"></span>{{ j.source }}</span></td>
     <td class="num">{{ j.match_score if j.match_score is not none else '' }}</td>
     <td><span class="st-{{ j.status }}">{{ j.status }}</span><div class="small muted">{{ j.status_reason[:70] }}</div></td>
-    <td style="white-space:nowrap">
-      {% if j.status in ['skipped','review','failed','new'] %}<form class="inline" method="post" action="/jobs/{{ j.id }}/queue"><button class="btn sm">Queue</button></form>{% endif %}
-      {% if j.status in ['queued','review','new'] %}<form class="inline" method="post" action="/jobs/{{ j.id }}/skip"><button class="btn sm">Skip</button></form>{% endif %}
-      <a class="btn sm" href="/jobs/{{ j.id }}/preview">Preview &amp; apply</a>
+    <td class="row-actions">
+      <a class="btn sm primary" href="/jobs/{{ j.id }}/preview">Preview &amp; apply</a>
+      {{ job_actions(j) }}
     </td>
   </tr>
   {% else %}<tr><td colspan="8" class="empty">No jobs yet. Discovery runs automatically once the bot is started.</td></tr>{% endfor %}

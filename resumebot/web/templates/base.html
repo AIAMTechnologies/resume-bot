@@ -22,10 +22,33 @@
   </nav>
   <main>
     <div id="dashboard-error-banner" class="card" role="alert" hidden>Something went wrong in this page. <a href="/errors">Open the error log</a> for details.</div>
-    <p class="small muted">{{ 'Automatic scheduler on' if automatic else 'Manual mode — preview and apply to individual jobs; queued jobs wait for automatic mode' }} · Telegram {{ 'connected' if telegram_connected else 'offline / not configured' }}</p>
+    <div class="topbar {{ 'paused' if global_pause }}">
+      <span class="small">{% if global_pause %}<b>⏸ Everything is paused</b> — no discovery, screening, or automatic applications.
+        {% else %}{{ '▶️ Automatic scheduler on' if automatic else 'Manual mode — preview and apply to individual jobs' }}{% endif %}
+        · Telegram {{ 'connected' if telegram_connected else 'offline / not configured' }}</span>
+      <form method="post" action="/control/global-pause">
+        <input type="hidden" name="paused" value="{{ 'off' if global_pause else 'on' }}">
+        <button class="btn sm {{ 'primary' if global_pause }}">{{ '▶️ Resume everything' if global_pause else '⏸ Pause everything' }}</button>
+      </form>
+    </div>
+    {% if flash %}<div class="flash" role="status">{{ flash }}</div>{% endif %}
+    {% if flash_error %}<div class="flash error" role="alert">{{ flash_error }}</div>{% endif %}
     {% block content %}{% endblock %}
   </main>
 </div>
+<script>
+// One action menu open at a time; click outside or press Escape to close.
+document.addEventListener('toggle', e => {
+  if (e.target.matches?.('details.more') && e.target.open)
+    document.querySelectorAll('details.more[open]').forEach(d => d !== e.target && d.removeAttribute('open'));
+}, true);
+document.addEventListener('click', e => {
+  if (!e.target.closest('details.more')) document.querySelectorAll('details.more[open]').forEach(d => d.removeAttribute('open'));
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.querySelectorAll('details.more[open]').forEach(d => d.removeAttribute('open'));
+});
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

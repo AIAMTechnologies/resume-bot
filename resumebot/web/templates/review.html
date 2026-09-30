@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import job_actions with context %}
 {% block content %}
 <h1>Review queue <span class="muted small">({{ items|length }})</span></h1>
 <p class="muted small">Borderline matches, questions the bot couldn't answer from your profile, and applications you need to finish yourself. Everything here is also sent to Telegram.</p>
@@ -40,6 +41,7 @@
         <form method="post" action="/review/{{ i.id }}"><input type="hidden" name="action" value="skip"><button class="btn">Skip</button></form>
       </div>
     {% endif %}
+    {% if j %}<div class="small muted" style="margin-top:10px">Or record what happened:</div>{{ job_actions(j) }}{% endif %}
   </div>
 {% else %}
   <div class="card empty">Nothing needs you right now. 🎉</div>

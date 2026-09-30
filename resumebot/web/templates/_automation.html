@@ -1,3 +1,4 @@
+{% from "_macros.html" import job_actions with context %}
 <div class="card" style="margin-bottom:16px">
 <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
 <h2>Automation {{ 'running' if automation.enabled and automation.live else 'not running' }}</h2>
@@ -31,7 +32,7 @@
 <div class="card" style="margin-bottom:16px">
 <h2>In progress and waiting</h2>
 <table><tr><th>Job</th><th>Source</th><th>State</th><th>What happens next</th><th></th></tr>
-{% for row in automation.queue %}{% set job = row.job %}<tr><td>{{ job.title }}<div class="small muted">{{ job.company }} · #{{ job.id }}</div></td><td>{{ job.source }}</td><td>{{ job.status }}</td><td>{{ row.reason }}</td><td><a href="/jobs/{{ job.id }}/preview">Preview &amp; apply</a></td></tr>
+{% for row in automation.queue %}{% set job = row.job %}<tr><td>{{ job.title }}<div class="small muted">{{ job.company }} · #{{ job.id }}</div></td><td>{{ job.source }}</td><td>{{ job.status }}</td><td>{{ row.reason }}</td><td class="row-actions"><a class="btn sm primary" href="/jobs/{{ job.id }}/preview">Preview &amp; apply</a>{{ job_actions(job) }}</td></tr>
 {% else %}<tr><td colspan="5">No jobs queued yet. Check job screening above and the review queue.</td></tr>{% endfor %}
 </table>
 </div>

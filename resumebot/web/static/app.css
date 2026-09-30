@@ -134,3 +134,26 @@ pre.cfg { background: var(--surface-2); padding: 12px; border-radius: 8px; overf
   .g2, .g3 { grid-template-columns: 1fr; }
   table { display: block; overflow-x: auto; }
 }
+
+/* action buttons, global pause bar, flash messages */
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 14px; }
+.topbar.paused { border-color: var(--serious); background: color-mix(in srgb, var(--serious) 10%, var(--surface)); }
+.topbar form { margin: 0; }
+.flash { border-radius: var(--radius); padding: 10px 12px; margin-bottom: 14px; border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--good) 10%, var(--surface)); }
+.flash.error { background: color-mix(in srgb, var(--critical) 10%, var(--surface)); border-color: var(--critical); }
+.actions { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 6px; }
+.actions form { margin: 0; }
+.row-actions { min-width: 220px; }
+.row-actions > .btn { margin-bottom: 4px; }
+.btn.on { outline: 2px solid var(--accent); }
+details.more { position: relative; display: inline-block; }
+details.more > summary { list-style: none; }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more .menu { position: absolute; right: 0; z-index: 20; min-width: 190px; margin-top: 4px; padding: 4px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.12); }
+details.more .menu form { margin: 0; }
+.menu-item { display: block; width: 100%; text-align: left; border: 0; background: none; color: var(--ink);
+  font: inherit; padding: 7px 10px; border-radius: 6px; cursor: pointer; }
+.menu-item:hover, .menu-item:focus-visible { background: var(--surface-2); }

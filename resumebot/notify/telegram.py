@@ -82,6 +82,54 @@ def notify(text: str, buttons: list[list[tuple[str, str]]] | None = None) -> Non
         asyncio.run(send(text, buttons))
 
 
+# ---------------- action buttons (shared with the dashboard via engine.outcomes) ----------------
+
+def job_buttons(job_id: int, more: bool = True) -> list[list[tuple[str, str]]]:
+    from ..engine import outcomes
+    quick = [(f"{o.emoji} {o.label}", f"jo:{k}:{job_id}")
+             for k, o in outcomes.JOB_OUTCOMES.items() if k in outcomes.QUICK_JOB_OUTCOMES]
+    rows = [quick[:2], quick[2:]]
+    if more:
+        rows.append([("🗂 Applied before", f"jo:already_applied:{job_id}"),
+                     ("⛔ Not eligible", f"jo:not_eligible:{job_id}")])
+    return [r for r in rows if r]
+
+
+def app_buttons(app_id: int) -> list[list[tuple[str, str]]]:
+    from ..engine import outcomes
+    items = [(f"{emoji} {label}", f"ao:{status}:{app_id}") for status, (label, emoji) in outcomes.APP_OUTCOMES.items()]
+    return [items[i:i + 3] for i in range(0, len(items), 3)]
+
+
+def pause_button() -> list[list[tuple[str, str]]]:
+    from ..engine import outcomes
+    return [[("▶️ Resume everything", "gp:off")]] if outcomes.global_paused() else [[("⏸ Pause everything", "gp:on")]]
+
+
+def _job_card(job_id: int) -> tuple[str, list] | str:
+    from ..models import Job
+    with db.session() as s:
+        job = s.get(Job, job_id)
+    if not job:
+        return f"No job #{job_id}. Use /jobs."
+    text = (f"<b>#{job.id} {esc(job.title)}</b> — {esc(job.company)}\n{esc(job.location)} · {job.source}"
+            + (f" · score {job.match_score}" if job.match_score is not None else "")
+            + f"\nStatus: <b>{job.status}</b> {esc(job.status_reason)}\n{esc(job.apply_url or job.url)}")
+    buttons = [[("Open posting", job.apply_url or job.url), ("Preview & apply", f"preview:{job.id}")]]
+    return text, buttons + job_buttons(job.id)
+
+
+def _app_card(app_id: int) -> tuple[str, list] | str:
+    from ..models import Application
+    with db.session() as s:
+        app = s.get(Application, app_id)
+    if not app:
+        return f"No application #{app_id}. Use /apps."
+    submitted = app.submitted_at.strftime("%b %d") if app.submitted_at else "not submitted"
+    return (f"<b>Application #{app.id}</b> — {esc(app.title)} @ {esc(app.company)}\n"
+            f"{app.source} · {submitted} · status <b>{app.status}</b>", app_buttons(app.id))
+
+
 # ---------------- command handling ----------------
 
 HELP = """<b>Resume Bot</b>
@@ -91,8 +139,12 @@ HELP = """<b>Resume Bot</b>
 /jobs – jobs available to apply to
 /preview JOB_ID – generate and send the exact resume
 /apply JOB_ID – preview and confirm an application
-/pause [source|all] – pause (default all)
-/resume [source|all] – resume
+/job JOB_ID – one job with action buttons (I applied, unavailable, …)
+/apps – recent applications with status buttons
+/pauseall – pause EVERYTHING (discovery, screening, applying)
+/resumeall – resume everything
+/pause [source|all] – pause one source (or all sources)
+/resume [source|all] – resume a source
 /run – start applying now (ignores the current wait, not caps/hours)
 /dashboard – dashboard link
 Reply to a question message to answer it."""
@@ -101,7 +153,9 @@ Reply to a question message to answer it."""
 async def _status_text() -> str:
     from ..engine import stats
     s = stats.overview()
-    lines = [f"<b>Today</b>: {s['today']} applied · <b>Week</b>: {s['week']} · <b>Total</b>: {s['total']}",
+    from ..engine import outcomes
+    lines = ["⏸ <b>Everything is paused</b>" if outcomes.global_paused() else "▶️ Automation is on",
+             f"<b>Today</b>: {s['today']} applied · <b>Week</b>: {s['week']} · <b>Total</b>: {s['total']}",
              f"Review queue: {s['pending_reviews']} · Queued jobs: {s['queued']}",
              f"Responses: {s['responses']} · Interviews: {s['interviews']}", ""]
     for src in stats.source_health():
@@ -129,7 +183,7 @@ async def handle_command(text: str) -> str:
             jobs = s.exec(db.select(Job).where(Job.status.notin_([JobStatus.APPLIED, JobStatus.SKIPPED]))
                           .order_by(Job.match_score.desc()).limit(15)).all()
         return ("\n".join(f"#{j.id} · {esc(j.title)} — {esc(j.company)} ({j.status})" for j in jobs)
-                + "\n\nUse /preview JOB_ID or /apply JOB_ID.") if jobs else "No available jobs."
+                + "\n\nUse /job JOB_ID for buttons, /preview JOB_ID or /apply JOB_ID.") if jobs else "No available jobs."
     if cmd in ("/preview", "/apply"):
         from ..engine import actions, drafts
         if not arg.isdigit():
@@ -143,7 +197,20 @@ async def handle_command(text: str) -> str:
         except ValueError as error:
             return str(error)
     if cmd == "/status":
-        return await _status_text()
+        return await _status_text(), pause_button()
+    if cmd in ("/pauseall", "/resumeall"):
+        from ..engine import outcomes
+        return outcomes.set_global_pause(cmd == "/pauseall", via="Telegram"), pause_button()
+    if cmd == "/job":
+        return _job_card(int(arg)) if arg.isdigit() else "Usage: /job JOB_ID (use /jobs to find IDs)."
+    if cmd in ("/apps", "/app"):
+        if cmd == "/app" or arg.isdigit():
+            return _app_card(int(arg)) if arg.isdigit() else "Usage: /app APPLICATION_ID"
+        apps = stats.recent_applications(10)
+        if not apps:
+            return "No applications yet."
+        return ("\n".join(f"#{a.id} · {esc(a.title)} — {esc(a.company)} · <b>{a.status}</b>" for a in apps)
+                + "\n\nTap /app ID for status buttons (Interview, Rejected, Offer…).")
     if cmd == "/today":
         apps = stats.recent_applications(today_only=True)
         if not apps:
@@ -172,7 +239,17 @@ async def handle_command(text: str) -> str:
 
 
 async def handle_callback(data: str) -> str:
-    from ..engine import review
+    from ..engine import outcomes, review
+    parts = data.split(":")
+    try:
+        if parts[0] == "jo" and len(parts) == 3:
+            return outcomes.record_job(int(parts[2]), parts[1], via="Telegram")
+        if parts[0] == "ao" and len(parts) == 3:
+            return outcomes.record_application(int(parts[2]), parts[1], via="Telegram")
+        if parts[0] == "gp" and len(parts) == 2:
+            return outcomes.set_global_pause(parts[1] == "on", via="Telegram")
+    except (outcomes.OutcomeError, ValueError) as error:
+        return str(error)
     if data.startswith("apply:"):
         from ..engine import actions
         try:
@@ -220,7 +297,9 @@ async def poll_forever() -> None:
             ("queue", "Pending review items"), ("pause", "Pause a source or all"),
             ("resume", "Resume a source or all"), ("run", "Run scheduler"), ("dashboard", "Dashboard link"),
             ("jobs", "List jobs and IDs"), ("preview", "Preview resume: /preview JOB_ID"),
-            ("apply", "Preview and confirm: /apply JOB_ID")]]
+            ("apply", "Preview and confirm: /apply JOB_ID"), ("job", "Job actions: /job JOB_ID"),
+            ("apps", "Applications + status buttons"), ("pauseall", "Pause everything"),
+            ("resumeall", "Resume everything")]]
     registered = False
     while True:
         try:
@@ -245,6 +324,13 @@ async def poll_forever() -> None:
                     if str(cq["message"]["chat"]["id"]) != chat_id:
                         continue
                     result = await handle_callback(cq.get("data", ""))
+                    if cq.get("data", "").startswith("gp:"):
+                        await call("answerCallbackQuery", callback_query_id=cq["id"], text=result[:200])
+                        await call("editMessageReplyMarkup", chat_id=chat_id, message_id=cq["message"]["message_id"],
+                                   reply_markup={"inline_keyboard": [[{"text": t, "callback_data": d} for t, d in row]
+                                                                     for row in pause_button()]})
+                        await send(esc(result), reply_to=cq["message"]["message_id"])
+                        continue
                     await call("answerCallbackQuery", callback_query_id=cq["id"], text=result[:200])
                     await call("editMessageReplyMarkup", chat_id=chat_id,
                                message_id=cq["message"]["message_id"], reply_markup={"inline_keyboard": []})
@@ -255,7 +341,11 @@ async def poll_forever() -> None:
                         continue
                     text = m.get("text", "")
                     if text.startswith("/"):
-                        await send(await handle_command(text))
+                        reply = await handle_command(text)
+                        if isinstance(reply, tuple):
+                            await send(reply[0], reply[1])
+                        else:
+                            await send(reply)
                     elif m.get("reply_to_message"):
                         reply = review.answer_by_telegram_message(m["reply_to_message"]["message_id"], text)
                         await send(esc(reply), reply_to=m["message_id"])
@@ -289,7 +379,7 @@ async def send_preview(job_id: int) -> None:
     manual = job.source in ('linkedin', 'workday', 'external')
     buttons = [] if job.status in (JobStatus.APPLIED, JobStatus.APPLYING) else [[(
         'Prepare manual application' if manual else 'Apply now with this resume',
-        f'apply:{job_id}:{draft["version"]}')]]
+        f'apply:{job_id}:{draft["version"]}')]] + job_buttons(job_id, more=False)
     await send(f'<b>Preview #{job_id}</b> — {esc(job.title)} @ {esc(job.company)}\n'
                'The saved resume above will be used unchanged.\n' +
                ('You finish submission on the job website.' if manual else
