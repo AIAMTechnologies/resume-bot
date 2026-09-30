@@ -97,18 +97,95 @@ async def daily_summary_loop():
     await _guard("summary", run, 600)
 
 
-async def run_all() -> list[asyncio.Task]:
+# ---------------- automation on/off (live, no restart) ----------------
+
+_always: list[asyncio.Task] = []       # Telegram listener: runs even when automation is off
+_automation: list[asyncio.Task] = []   # discovery, screening, applying, inbox, summary
+
+
+def _automation_tasks() -> list[asyncio.Task]:
     tasks = [
         asyncio.create_task(discovery_loop(), name="discovery"),
         asyncio.create_task(triage_loop(), name="triage"),
         asyncio.create_task(inbox_loop(), name="inbox"),
-        asyncio.create_task(telegram.poll_forever(), name="telegram"),
         asyncio.create_task(daily_summary_loop(), name="summary"),
     ]
     for name, cfg in settings().pacing.sources.items():
         if cfg.enabled and cfg.mode != "manual":
             tasks.append(asyncio.create_task(source_loop(name), name=f"apply:{name}"))
-    runtime.register(tasks)
-    db.log("Scheduler started", kind="system", level="success")
-    await telegram.send("🤖 Resume Bot started. /status for details.")
     return tasks
+
+
+def automation_running() -> bool:
+    return any(not t.done() for t in _automation)
+
+
+def all_tasks() -> list[asyncio.Task]:
+    return [*_always, *_automation]
+
+
+async def start_background(automatic: bool) -> list[asyncio.Task]:
+    """Called once at startup: always listen on Telegram; start automation if requested."""
+    if not any(not t.done() for t in _always):
+        _always[:] = [asyncio.create_task(telegram.poll_forever(), name="telegram")]
+    if automatic:
+        await start_automation(via="startup", announce=True)
+    else:
+        db.kv_set("automatic_mode", False)
+        runtime.register(all_tasks())
+    return all_tasks()
+
+
+async def start_automation(via: str = "dashboard", announce: bool = True) -> str:
+    if automation_running():
+        return "Automation is already running."
+    _automation[:] = _automation_tasks()
+    db.kv_set("automatic_mode", True)
+    db.kv_set("global_pause", False)  # turning automation on means you want it working
+    runtime.register(all_tasks())
+    message = "🤖 Automation on — finding, screening, and applying on each source's schedule."
+    db.log(f"{message} (via {via})", kind="system", level="success")
+    if announce:
+        await telegram.send(message + " /status for details.")
+    return message
+
+
+async def stop_automation(via: str = "dashboard") -> str:
+    """Stop background work; the dashboard and Telegram keep running."""
+    from ..browser.session import browsers
+    from ..models import Job, JobStatus
+    from . import actions
+    tasks, _automation[:] = list(_automation), []
+    for t in tasks:
+        t.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    db.kv_set("automatic_mode", False)
+    # A form interrupted mid-way must not be retried blindly: park it for your review.
+    interrupted = []
+    with db.session() as s:
+        for job in s.exec(db.select(Job).where(Job.status == JobStatus.APPLYING)):
+            if not actions.busy(job.id):
+                job.status, job.status_reason = JobStatus.REVIEW, "interrupted when automation stopped — check before re-applying"
+                s.add(job)
+                interrupted.append(job.id)
+        s.commit()
+    if tasks and not actions._tasks:
+        await browsers.close()
+    runtime.register(all_tasks())
+    message = "⏹ Automation off — the dashboard and Telegram still work; nothing applies automatically."
+    if interrupted:
+        message += f" Interrupted job(s) moved to review: {', '.join(f'#{i}' for i in interrupted)}."
+    db.log(f"{message} (via {via})", kind="system", level="warning")
+    return message
+
+
+async def shutdown() -> None:
+    tasks, _automation[:], _always[:] = all_tasks(), [], []
+    for t in tasks:
+        t.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def run_all() -> list[asyncio.Task]:
+    """Start everything (Telegram + automation). Kept for callers and tests."""
+    return await start_background(True)

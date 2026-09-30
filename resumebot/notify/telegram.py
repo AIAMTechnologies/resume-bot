@@ -102,8 +102,12 @@ def app_buttons(app_id: int) -> list[list[tuple[str, str]]]:
 
 
 def pause_button() -> list[list[tuple[str, str]]]:
-    from ..engine import outcomes
-    return [[("▶️ Resume everything", "gp:off")]] if outcomes.global_paused() else [[("⏸ Pause everything", "gp:on")]]
+    """Automation on/off plus pause/resume — the same switches as the dashboard's top bar."""
+    from ..engine import outcomes, scheduler
+    if not scheduler.automation_running():
+        return [[("🤖 Turn automation on", "am:on")]]
+    pause = ("▶️ Resume", "gp:off") if outcomes.global_paused() else ("⏸ Pause", "gp:on")
+    return [[pause, ("⏹ Turn automation off", "am:off")]]
 
 
 def _job_card(job_id: int) -> tuple[str, list] | str:
@@ -141,6 +145,8 @@ HELP = """<b>Resume Bot</b>
 /apply JOB_ID – preview and confirm an application
 /job JOB_ID – one job with action buttons (I applied, unavailable, …)
 /apps – recent applications with status buttons
+/automation on|off – turn automation on or off
+/screen – score all jobs waiting for screening now
 /pauseall – pause EVERYTHING (discovery, screening, applying)
 /resumeall – resume everything
 /pause [source|all] – pause one source (or all sources)
@@ -154,9 +160,13 @@ async def _status_text() -> str:
     from ..engine import stats
     s = stats.overview()
     from ..engine import outcomes
-    lines = ["⏸ <b>Everything is paused</b>" if outcomes.global_paused() else "▶️ Automation is on",
+    from ..engine import scheduler, screening
+    state = ("🤖 <b>Automation is off</b>" if not scheduler.automation_running()
+             else "⏸ <b>Automation is on but paused</b>" if outcomes.global_paused() else "🤖 <b>Automation is on</b>")
+    lines = [state,
              f"<b>Today</b>: {s['today']} applied · <b>Week</b>: {s['week']} · <b>Total</b>: {s['total']}",
              f"Review queue: {s['pending_reviews']} · Queued jobs: {s['queued']}",
+             f"Waiting for screening: {screening.waiting()} (/screen to score now)",
              f"Responses: {s['responses']} · Interviews: {s['interviews']}", ""]
     for src in stats.source_health():
         state = "⏸ " + esc(src["reason"]) if src["paused"] else ("▶️ " + esc(src["status"]))
@@ -198,6 +208,17 @@ async def handle_command(text: str) -> str:
             return str(error)
     if cmd == "/status":
         return await _status_text(), pause_button()
+    if cmd == "/screen":
+        from ..engine import screening
+        return screening.start(via="Telegram")
+    if cmd == "/automation":
+        from ..engine import scheduler
+        if arg in ("on", "off"):
+            message = await (scheduler.start_automation(via="Telegram", announce=False) if arg == "on"
+                             else scheduler.stop_automation(via="Telegram"))
+            return esc(message), pause_button()
+        return ("🤖 Automation is " + ("on" if scheduler.automation_running() else "off")
+                + ". Use /automation on or /automation off."), pause_button()
     if cmd in ("/pauseall", "/resumeall"):
         from ..engine import outcomes
         return outcomes.set_global_pause(cmd == "/pauseall", via="Telegram"), pause_button()
@@ -248,6 +269,10 @@ async def handle_callback(data: str) -> str:
             return outcomes.record_application(int(parts[2]), parts[1], via="Telegram")
         if parts[0] == "gp" and len(parts) == 2:
             return outcomes.set_global_pause(parts[1] == "on", via="Telegram")
+        if parts[0] == "am" and len(parts) == 2:
+            from ..engine import scheduler
+            return await (scheduler.start_automation(via="Telegram", announce=False) if parts[1] == "on"
+                          else scheduler.stop_automation(via="Telegram"))
     except (outcomes.OutcomeError, ValueError) as error:
         return str(error)
     if data.startswith("apply:"):
@@ -298,7 +323,8 @@ async def poll_forever() -> None:
             ("resume", "Resume a source or all"), ("run", "Run scheduler"), ("dashboard", "Dashboard link"),
             ("jobs", "List jobs and IDs"), ("preview", "Preview resume: /preview JOB_ID"),
             ("apply", "Preview and confirm: /apply JOB_ID"), ("job", "Job actions: /job JOB_ID"),
-            ("apps", "Applications + status buttons"), ("pauseall", "Pause everything"),
+            ("apps", "Applications + status buttons"), ("automation", "Turn automation on/off"), ("screen", "Score waiting jobs now"),
+            ("pauseall", "Pause everything"),
             ("resumeall", "Resume everything")]]
     registered = False
     while True:
@@ -324,7 +350,7 @@ async def poll_forever() -> None:
                     if str(cq["message"]["chat"]["id"]) != chat_id:
                         continue
                     result = await handle_callback(cq.get("data", ""))
-                    if cq.get("data", "").startswith("gp:"):
+                    if cq.get("data", "").startswith(("gp:", "am:")):
                         await call("answerCallbackQuery", callback_query_id=cq["id"], text=result[:200])
                         await call("editMessageReplyMarkup", chat_id=chat_id, message_id=cq["message"]["message_id"],
                                    reply_markup={"inline_keyboard": [[{"text": t, "callback_data": d} for t, d in row]

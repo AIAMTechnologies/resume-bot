@@ -1,6 +1,8 @@
 """The job pipeline: discover → filter → score → tailor → apply → record."""
 from __future__ import annotations
 
+import asyncio
+
 import random
 import time
 from pathlib import Path
@@ -77,8 +79,10 @@ async def discover(source_name: str) -> int:
 
 # ---------------- filtering & scoring ----------------
 
-async def triage_new(limit: int = 25) -> None:
-    cfg = settings().matching
+_triage_lock = asyncio.Lock()  # automatic screening and "Screen now" never score the same job twice
+
+
+def _new_jobs(limit: int) -> list[Job]:
     keywords = settings().targets.title_keywords
     priority = case(*[(Job.title.ilike(f"%{word}%"), rank) for rank, word in enumerate(keywords)],
                     else_=len(keywords)) if keywords else Job.discovered_at
@@ -86,38 +90,72 @@ async def triage_new(limit: int = 25) -> None:
     regional_priority = case(*[(Job.location.ilike(f"%{region}%"), 0) for region in regions],
                              else_=1) if regions else priority
     with db.session() as s:
-        new_jobs = list(s.exec(select(Job).where(Job.status == JobStatus.NEW)
-                              .order_by(priority, regional_priority, Job.discovered_at).limit(limit)))
+        return list(s.exec(select(Job).where(Job.status == JobStatus.NEW)
+                           .order_by(priority, regional_priority, Job.discovered_at).limit(limit)))
+
+
+async def screen_job(job: Job, progress: str = "") -> str:
+    """Rule filters, then AI score for one NEW job. Returns the resulting status."""
     from . import runtime
-    for index, job in enumerate(new_jobs, 1):
-        runtime.update("triage", message=f"Checking {index}/{len(new_jobs)}: #{job.id} {job.title} @ {job.company}", job_id=job.id)
-        ok, why = matcher.prefilter(job)
-        if not ok:
-            job.status, job.status_reason = JobStatus.SKIPPED, why
-            db.save(job)
-            continue
-        if not job.description:
-            job.status, job.status_reason = JobStatus.SKIPPED, "no description"
-            db.save(job)
-            continue
-        try:
-            runtime.update("triage", message=f"Scoring {index}/{len(new_jobs)}: #{job.id} {job.title} @ {job.company}")
-            job.match_score, job.match_reasons, job.missing_skills = await matcher.score(job)
-        except Exception as e:  # noqa: BLE001
-            db.log(f"Scoring failed for #{job.id}: {e}", level="error", kind="score", job_id=job.id)
-            continue
-        if job.match_score >= cfg.auto_apply_score:
-            job.status, job.status_reason = JobStatus.QUEUED, f"score {job.match_score}"
-        elif job.match_score >= cfg.review_score:
-            job.status, job.status_reason = JobStatus.REVIEW, f"borderline score {job.match_score}"
-        else:
-            job.status, job.status_reason = JobStatus.SKIPPED, f"low score {job.match_score}"
-        job.updated_at = utcnow()
+    cfg = settings().matching
+    ok, why = matcher.prefilter(job)
+    if not ok:
+        job.status, job.status_reason = JobStatus.SKIPPED, why
         db.save(job)
-        if job.status == JobStatus.REVIEW:
-            await review.job_review(job, job.status_reason)
-        db.log(f"Scored {job.match_score}: {job.title} @ {job.company} → {job.status}",
-               source=job.source, kind="score", job_id=job.id)
+        return job.status
+    if not job.description:
+        job.status, job.status_reason = JobStatus.SKIPPED, "no description"
+        db.save(job)
+        return job.status
+    runtime.update("triage", message=f"Scoring {progress}#{job.id} {job.title} @ {job.company}", job_id=job.id)
+    try:
+        job.match_score, job.match_reasons, job.missing_skills = await matcher.score(job)
+    except Exception as e:  # noqa: BLE001
+        db.log(f"Scoring failed for #{job.id}: {e}", level="error", kind="score", job_id=job.id)
+        return "error"
+    if job.match_score >= cfg.auto_apply_score:
+        job.status, job.status_reason = JobStatus.QUEUED, f"score {job.match_score}"
+    elif job.match_score >= cfg.review_score:
+        job.status, job.status_reason = JobStatus.REVIEW, f"borderline score {job.match_score}"
+    else:
+        job.status, job.status_reason = JobStatus.SKIPPED, f"low score {job.match_score}"
+    job.updated_at = utcnow()
+    db.save(job)
+    if job.status == JobStatus.REVIEW:
+        await review.job_review(job, job.status_reason)
+    db.log(f"Scored {job.match_score}: {job.title} @ {job.company} → {job.status}",
+           source=job.source, kind="score", job_id=job.id)
+    return job.status
+
+
+async def triage_new(limit: int = 25) -> str:
+    from . import runtime
+    async with _triage_lock:
+        new_jobs = _new_jobs(limit)
+        scored = 0
+        for index, job in enumerate(new_jobs, 1):
+            runtime.update("triage", message=f"Checking {index}/{len(new_jobs)}: #{job.id} {job.title} @ {job.company}",
+                           job_id=job.id)
+            with db.session() as s:
+                current = s.get(Job, job.id)
+            if current is None or current.status != JobStatus.NEW:
+                continue  # screened meanwhile (e.g. "Score now")
+            await screen_job(current, f"{index}/{len(new_jobs)}: ")
+            scored += current.match_score is not None
+    return f"Screened {len(new_jobs)} job(s), {scored} scored by AI" if new_jobs else "No new jobs to screen"
+
+
+async def screen_one(job_id: int) -> str:
+    async with _triage_lock:
+        with db.session() as s:
+            job = s.get(Job, job_id)
+        if job is None:
+            raise ValueError("Job not found.")
+        if job.status != JobStatus.NEW:
+            job.status, job.match_score = JobStatus.NEW, None
+        status = await screen_job(job)
+    return (f"#{job_id}: score {job.match_score} → {status}" if job.match_score is not None
+            else f"#{job_id}: {status} — {job.status_reason}")
 
 
 # ---------------- applying ----------------

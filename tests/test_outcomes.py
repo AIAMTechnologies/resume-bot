@@ -100,7 +100,7 @@ async def test_dashboard_buttons(client, job):
     async with client:
         page = await client.get("/jobs")
         assert f"/jobs/{job.id}/outcome/applied" in page.text and f"/jobs/{job.id}/outcome/unavailable" in page.text
-        assert "Pause everything" in page.text
+        assert "Turn automation on" in page.text  # automation is off in tests
         r = await client.post(f"/jobs/{job.id}/outcome/unavailable", headers={"referer": "http://test/jobs?status=review"})
         assert r.status_code == 303 and r.headers["location"].startswith("/jobs?status=review&msg=")
         outcome_page = r.headers["location"]
@@ -110,7 +110,7 @@ async def test_dashboard_buttons(client, job):
 
         r = await client.post("/control/global-pause", data={"paused": "on"})
         assert r.status_code == 303 and outcomes.global_paused()
-        assert "Everything is paused" in (await client.get("/")).text
+        assert outcomes.global_paused()
         await client.post("/control/global-pause", data={"paused": "off"})
         assert not outcomes.global_paused()
 
@@ -138,7 +138,7 @@ async def test_telegram_buttons_and_commands(job):
     assert "Offer" in await telegram.handle_callback(f"ao:offer:{app_id}")
     assert "paused" in (await telegram.handle_callback("gp:on")).lower() and outcomes.global_paused()
     text, buttons = await telegram.handle_command("/status")
-    assert "paused" in text.lower() and buttons == [[("▶️ Resume everything", "gp:off")]]
+    assert "automation is off" in text.lower() and buttons == [[("🤖 Turn automation on", "am:on")]]
     await telegram.handle_callback("gp:off")
     text, buttons = await telegram.handle_command(f"/job {job.id}")
     assert f"#{job.id}" in text

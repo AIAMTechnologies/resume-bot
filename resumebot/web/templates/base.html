@@ -22,14 +22,25 @@
   </nav>
   <main>
     <div id="dashboard-error-banner" class="card" role="alert" hidden>Something went wrong in this page. <a href="/errors">Open the error log</a> for details.</div>
-    <div class="topbar {{ 'paused' if global_pause }}">
-      <span class="small">{% if global_pause %}<b>⏸ Everything is paused</b> — no discovery, screening, or automatic applications.
-        {% else %}{{ '▶️ Automatic scheduler on' if automatic else 'Manual mode — preview and apply to individual jobs' }}{% endif %}
+    <div class="topbar {{ 'paused' if global_pause else ('running' if automatic else '') }}">
+      <span class="small">
+        {% if not automatic %}<b>🤖 Automation is off</b> — nothing is found or applied automatically. Use Preview &amp; apply for single jobs.
+        {% elif global_pause %}<b>⏸ Automation is on but paused</b> — no discovery, screening, or applications until you resume.
+        {% else %}<b>🤖 Automation is on</b> — finding, screening, and applying on each source's schedule.{% endif %}
         · Telegram {{ 'connected' if telegram_connected else 'offline / not configured' }}</span>
-      <form method="post" action="/control/global-pause">
-        <input type="hidden" name="paused" value="{{ 'off' if global_pause else 'on' }}">
-        <button class="btn sm {{ 'primary' if global_pause }}">{{ '▶️ Resume everything' if global_pause else '⏸ Pause everything' }}</button>
-      </form>
+      <span class="actions" style="margin:0">
+        {% if automatic %}
+          <form method="post" action="/control/global-pause">
+            <input type="hidden" name="paused" value="{{ 'off' if global_pause else 'on' }}">
+            <button class="btn sm {{ 'primary' if global_pause }}">{{ '▶️ Resume' if global_pause else '⏸ Pause' }}</button>
+          </form>
+          <form method="post" action="/control/automation"><input type="hidden" name="on" value="off">
+            <button class="btn sm danger" title="Stop background work. Dashboard and Telegram keep working.">⏹ Turn automation off</button></form>
+        {% else %}
+          <form method="post" action="/control/automation"><input type="hidden" name="on" value="on">
+            <button class="btn sm primary">🤖 Turn automation on</button></form>
+        {% endif %}
+      </span>
     </div>
     {% if flash %}<div class="flash" role="status">{{ flash }}</div>{% endif %}
     {% if flash_error %}<div class="flash error" role="alert">{{ flash_error }}</div>{% endif %}

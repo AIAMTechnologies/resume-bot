@@ -135,7 +135,8 @@ def recent_applications(limit: int = 50, today_only: bool = False, source: str =
 
 def jobs(status: str = "", source: str = "", limit: int = 200) -> list[Job]:
     with db.session() as s:
-        stmt = select(Job).order_by(Job.discovered_at.desc())
+        # Scored jobs first (best match on top), then unscored, newest first.
+        stmt = select(Job).order_by(Job.match_score.is_(None), Job.match_score.desc(), Job.discovered_at.desc())
         if status:
             stmt = stmt.where(Job.status == status)
         if source:

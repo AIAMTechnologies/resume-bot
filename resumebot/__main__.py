@@ -59,22 +59,13 @@ def run(dashboard_only: bool = typer.Option(False, "--dashboard-only", help="Das
     async def main():
         config = uvicorn.Config(web, host=env().dashboard_host, port=env().dashboard_port, log_level="warning")
         server = uvicorn.Server(config)
-        web.state.automatic = not dashboard_only
-        from . import db
-        db.kv_set("automatic_mode", not dashboard_only)
-        from .notify import telegram
-        tasks = [asyncio.create_task(telegram.poll_forever(), name="telegram")] if dashboard_only else await scheduler.run_all()
-        if dashboard_only:
-            from .engine import runtime
-            runtime.register(tasks)
+        await scheduler.start_background(automatic=not dashboard_only)
         console.print(f"[green]Dashboard:[/] http://{env().dashboard_host}:{env().dashboard_port}"
-                      + ("  [yellow](manual mode: dashboard + Telegram)[/]" if dashboard_only else ""))
+                      + ("  [yellow](automation off — turn it on from the dashboard or /automation on)[/]" if dashboard_only else ""))
         try:
             await server.serve()
         finally:
-            for t in tasks:
-                t.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await scheduler.shutdown()
             await browsers.shutdown()
 
     try:

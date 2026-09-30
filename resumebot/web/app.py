@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from .. import db
 from ..config import CONFIG_DIR, DATA_DIR, env, settings
-from ..engine import actions, drafts, outcomes, pipeline, review, stats
+from ..engine import actions, drafts, outcomes, pipeline, review, screening, stats
 from ..engine.pacing import Gate, to_local
 from ..models import Application, Job, JobStatus, ProfileItem
 from ..profile import ingest, master
@@ -52,7 +52,8 @@ def page(request: Request, name: str, **ctx):
     ctx.setdefault("global_pause", outcomes.global_paused())
     ctx.setdefault("flash", request.query_params.get("msg", ""))
     ctx.setdefault("flash_error", request.query_params.get("err", ""))
-    ctx.setdefault("automatic", getattr(app.state, "automatic", False))
+    from ..engine import scheduler
+    ctx.setdefault("automatic", scheduler.automation_running())
     ctx.setdefault("telegram_connected", db.kv_get("telegram_connected", False))
     ctx.setdefault("active", name.split(".")[0])
     ctx["pending_count"] = stats.overview()["pending_reviews"]
@@ -144,6 +145,7 @@ async def set_app_status(request: Request, app_id: int, status: str = Form(...))
 @app.get("/jobs", response_class=HTMLResponse)
 async def jobs(request: Request, status: str = "", source: str = ""):
     return page(request, "jobs.html", jobs=stats.jobs(status, source, 400), f={"status": status, "source": source},
+                screening=screening.status(),
                 statuses=[v for k, v in vars(JobStatus).items() if not k.startswith("_")])
 
 
@@ -169,6 +171,17 @@ async def job_action(request: Request, job_id: int, action: str, version: str = 
     return back(request, "/jobs")
 
 
+@app.post("/jobs/screen")
+async def screen_backlog(request: Request):
+    return back(request, "/jobs", msg=screening.start())
+
+
+@app.post("/jobs/{job_id}/score")
+async def score_one(request: Request, job_id: int):
+    background(pipeline.screen_one(job_id))
+    return back(request, "/jobs", msg=f"Scoring job #{job_id} — refresh in a few seconds.")
+
+
 @app.post("/jobs/{job_id}/outcome/{key}")
 async def job_outcome(request: Request, job_id: int, key: str):
     try:
@@ -177,6 +190,13 @@ async def job_outcome(request: Request, job_id: int, key: str):
         raise HTTPException(error.status_code, str(error))
     except outcomes.OutcomeError as error:
         return back(request, "/jobs", err=str(error))
+
+
+@app.post("/control/automation")
+async def automation_switch(request: Request, on: str = Form(...)):
+    from ..engine import scheduler
+    message = await (scheduler.start_automation() if on == "on" else scheduler.stop_automation())
+    return back(request, msg=message)
 
 
 @app.post("/control/global-pause")
