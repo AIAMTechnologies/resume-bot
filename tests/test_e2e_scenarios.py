@@ -513,8 +513,10 @@ async def test_s5_follow_up_question_revealed_by_an_answer(world):
     await pipeline.apply_job(job)
     job = refreshed(job)
     report(job, world)
-    # Wanted: the follow-up goes to review (REVIEW) instead of a failed submit.
-    assert job.status == JobStatus.REVIEW, job.status_reason
+    # The follow-up is found by the re-scan and answered, or goes to review — never a failed submit.
+    assert job.status in (JobStatus.APPLIED, JobStatus.REVIEW), job.status_reason
+    if job.status == JobStatus.APPLIED:
+        assert world.sites.submissions[-1].get("question_where"), "follow-up question left blank"
 
 
 async def test_s6_site_rejects_submission(world):

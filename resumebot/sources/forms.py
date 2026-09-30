@@ -11,6 +11,9 @@ import random
 import re
 from typing import TYPE_CHECKING
 
+from playwright.async_api import TimeoutError as PlaywrightTimeout
+
+from .. import db
 from ..config import answers
 from ..engine.questions import Field, NeedsHuman, from_memory
 from .base import ApplyContext, NeedsInput
@@ -71,6 +74,10 @@ SCAN_JS = r"""
     const type = (el.getAttribute('type') || el.tagName).toLowerCase();
     if (['hidden', 'submit', 'button', 'image', 'reset', 'search'].includes(type)) return;
     if (el.hasAttribute('data-rb-done')) return;
+    // Hidden companion inputs used only for validation (react-select's "requiredInput" next to each
+    // dropdown) are not fields a person fills; typing into them hangs.
+    if (!['radio', 'checkbox', 'file'].includes(type) &&
+        (el.getAttribute('aria-hidden') === 'true' || /requiredinput/i.test(el.className || ''))) return;
     const shown = vis(el) || (el.labels && [...el.labels].some(vis)) || type === 'file';
     if (!shown || el.disabled) return;
     const id = String(n++); el.setAttribute('data-rb-id', id);
@@ -101,6 +108,28 @@ SCAN_JS = r"""
       required: isReq(buttons[0]), options: buttons.map(el => clean(el.innerText)), ids, selectors: buttons.map(stableSelector),
       checked: buttons.filter(el => el.getAttribute('aria-pressed') === 'true').map(el => clean(el.innerText))});
   });
+  // Generic button-style choices (any site): a labelled field whose only controls are 2–4 short
+  // buttons like Yes / No / Not sure. Skip groups already captured above.
+  const CHOICE = /^(yes|no|not sure|maybe|prefer not to say|n\/a)$/i;
+  document.querySelectorAll('[data-rb-group]').forEach(e => e.removeAttribute('data-rb-group'));
+  root.querySelectorAll('button[type=button], [role=radio]').forEach(btn => {
+    if (btn.closest('.ashby-application-form-input-yesno') || !CHOICE.test(clean(btn.innerText))) return;
+    const holder = btn.parentElement;
+    if (!holder || holder.hasAttribute('data-rb-group')) return;
+    const buttons = [...holder.querySelectorAll(':scope > button, :scope > [role=radio]')].filter(vis);
+    if (buttons.length < 2 || buttons.length > 4 || !buttons.every(b => CHOICE.test(clean(b.innerText)))) return;
+    holder.setAttribute('data-rb-group', '1');
+    let field = holder.parentElement, label = '';
+    for (let i = 0; i < 4 && field && !label; i++, field = field.parentElement) {
+      const l = field.querySelector('label, legend, [id$=label]');
+      if (l && !holder.contains(l)) label = textOf(l);
+    }
+    const ids = buttons.map(el => { const id = String(n++); el.setAttribute('data-rb-id', id); return id; });
+    out.push({kind: 'radio', label: label || 'Yes/No question', required: /\*\s*$/.test(label) || isReq(buttons[0]),
+      options: buttons.map(el => clean(el.innerText)), ids, selectors: buttons.map(stableSelector),
+      checked: buttons.filter(el => el.getAttribute('aria-pressed') === 'true' || el.getAttribute('aria-checked') === 'true')
+        .map(el => clean(el.innerText))});
+  });
   Object.values(groups).forEach(g => out.push(g));
   return out;
 }
@@ -118,8 +147,9 @@ def _consent_answer(label: str) -> bool | None:
     return bool(re.match(r"\s*(check|yes|y\b|agree|i agree|ok|true)", answer, re.I))
 
 
-def _file_role(label: str, name: str) -> str:
-    s = f"{label} {name}".lower()
+def _file_role(label: str, name: str, selector: str = "") -> str:
+    # Greenhouse labels the upload button just "Attach"; its id (#resume, #cover_letter) says what it is.
+    s = f"{label} {name} {selector}".lower()
     if re.search(r"cover", s):
         return "cover"
     if re.search(r"resume|cv|curriculum", s):
@@ -187,6 +217,12 @@ async def _settle(ctx: ApplyContext, timeout: float = 20) -> None:
     await ctx.human.pause(0.8, 1.8)
 
 
+def _field_key(f: dict) -> str:
+    """Identity that survives re-scans (temporary data-rb-id markers change every scan)."""
+    stable = [x for x in [f.get("selector"), *(f.get("selectors") or [])] if x and "data-rb-id" not in x]
+    return f"{f.get('kind')}|{f.get('label')}|{','.join(f.get('options') or [])}|{','.join(stable)}"
+
+
 async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str, str]:
     """Fill every visible field in all elements matching root_selector. Returns {label: answer}.
 
@@ -201,7 +237,7 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
         label = f.get("label", "")
         if AUTOFILL_RE.search(label):
             continue  # the bot fills every field itself; resume parsers inject wrong values
-        role = _file_role(label, f.get("name", ""))
+        role = _file_role(label, f.get("name", ""), f.get("selector", ""))
         loc = ctx.page.locator(f'[data-rb-id="{f["id"]}"]')
         if role == "resume":
             await ctx.human.upload(loc, str(ctx.materials.resume_pdf))
@@ -213,79 +249,93 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
     if files:
         await _settle(ctx)
 
-    fields = [f for f in await _scan(ctx, root_selector, 10_000) if f["kind"] != "file"]
-    for f in fields:
-        kind, label = f["kind"], f.get("label", "")
-        try:
-            if kind == "file":
-                role = _file_role(label, f.get("name", ""))
-                loc = ctx.page.locator(f'[data-rb-id="{f["id"]}"]')
-                if role == "resume":
-                    await ctx.human.upload(loc, str(ctx.materials.resume_pdf))
-                    filled[label] = ctx.materials.resume_pdf.name
-                elif role == "cover" and ctx.materials.cover_letter_pdf:
-                    await ctx.human.upload(loc, str(ctx.materials.cover_letter_pdf))
-                    filled[label] = ctx.materials.cover_letter_pdf.name
-                continue
+    # Re-scan after filling: answering one question can reveal follow-ups ("Yes" → "Where?").
+    seen: set[str] = set()
+    for round_ in range(3):
+        fields = [f for f in await _scan(ctx, root_selector, 10_000 + 1_000 * round_)
+                  if f["kind"] != "file" and _field_key(f) not in seen]
+        if round_ and not any(not f.get("value") and not f.get("checked") for f in fields):
+            break
+        for f in fields:
+            seen.add(_field_key(f))
+            kind, label = f["kind"], f.get("label", "")
+            try:
+                if kind == "file":
+                    role = _file_role(label, f.get("name", ""), f.get("selector", ""))
+                    loc = ctx.page.locator(f'[data-rb-id="{f["id"]}"]')
+                    if role == "resume":
+                        await ctx.human.upload(loc, str(ctx.materials.resume_pdf))
+                        filled[label] = ctx.materials.resume_pdf.name
+                    elif role == "cover" and ctx.materials.cover_letter_pdf:
+                        await ctx.human.upload(loc, str(ctx.materials.cover_letter_pdf))
+                        filled[label] = ctx.materials.cover_letter_pdf.name
+                    continue
 
-            if kind in ("radio", "checkgroup"):
-                if f.get("checked"):
+                if kind in ("radio", "checkgroup"):
+                    if f.get("checked"):
+                        continue
+                    answer = await ctx.answer(Field(label, "radio", f["options"], f["required"]))
+                    if not answer:
+                        continue
+                    if answer not in f["options"]:
+                        raise NeedsHuman(label, answer, f["options"])
+                    idx = f["options"].index(answer)
+                    await ctx.human.click(await _clickable(ctx, _locator(ctx, f, idx)))
+                    filled[label] = answer
                     continue
-                answer = await ctx.answer(Field(label, "radio", f["options"], f["required"]))
-                if not answer:
-                    continue
-                if answer not in f["options"]:
-                    raise NeedsHuman(label, answer, f["options"])
-                idx = f["options"].index(answer)
-                await ctx.human.click(await _clickable(ctx, _locator(ctx, f, idx)))
-                filled[label] = answer
-                continue
 
-            loc = _locator(ctx, f)
-            if kind == "checkbox":
-                checked = f.get("value") == "true"
-                if SKIP_CHECKBOX_RE.search(label):
-                    if checked:
-                        await ctx.human.click(await _clickable(ctx, loc))  # un-follow / un-subscribe
+                loc = _locator(ctx, f)
+                if kind == "checkbox":
+                    checked = f.get("value") == "true"
+                    if SKIP_CHECKBOX_RE.search(label):
+                        if checked:
+                            await ctx.human.click(await _clickable(ctx, loc))  # un-follow / un-subscribe
+                        continue
+                    if CONSENT_RE.search(label):
+                        agree = consent_ok or _consent_answer(label)
+                        if agree is None:
+                            raise NeedsHuman(label, "check", ["check", "leave unchecked"])
+                        if agree and not checked:
+                            await ctx.human.click(await _clickable(ctx, loc))
+                        filled[label] = "checked" if agree else "unchecked"
+                        continue
+                    if f["required"] and not checked:
+                        answer = await ctx.answer(Field(label, "checkbox", ["Yes", "No"], True))
+                        if answer.lower().startswith("y"):
+                            await ctx.human.click(await _clickable(ctx, loc))
+                        filled[label] = answer
                     continue
-                if CONSENT_RE.search(label):
-                    agree = consent_ok or _consent_answer(label)
-                    if agree is None:
-                        raise NeedsHuman(label, "check", ["check", "leave unchecked"])
-                    if agree and not checked:
-                        await ctx.human.click(await _clickable(ctx, loc))
-                    filled[label] = "checked" if agree else "unchecked"
-                    continue
-                if f["required"] and not checked:
-                    answer = await ctx.answer(Field(label, "checkbox", ["Yes", "No"], True))
-                    if answer.lower().startswith("y"):
-                        await ctx.human.click(await _clickable(ctx, loc))
-                    filled[label] = answer
-                continue
 
-            if f.get("value"):  # prefilled (e.g. LinkedIn profile data) — leave as-is
-                continue
-            if kind == "select":
-                answer = await ctx.answer(Field(label, "select", f.get("options") or [], f["required"]))
-                if answer:
-                    await ctx.human.select(loc, answer)
-                    filled[label] = answer
-            elif kind == "combobox":
-                options = await _combobox_options(ctx, loc)
-                answer = await ctx.answer(Field(label, "select" if options else "text", options or None, f["required"]))
-                if answer:
-                    if not await _pick_combobox(ctx, loc, answer):
-                        raise NeedsHuman(label, answer, options)
-                    filled[label] = answer
-            else:
-                answer = await ctx.answer(Field(label, kind, None, f["required"]))
-                if answer:
-                    await ctx.human.type(loc, answer, typos=kind == "textarea")
-                    filled[label] = answer
-        except NeedsHuman as nh:
-            pending.append((nh.question, nh.proposed, nh.options))
+                if f.get("value"):  # prefilled (e.g. LinkedIn profile data) — leave as-is
+                    continue
+                if kind == "select":
+                    answer = await ctx.answer(Field(label, "select", f.get("options") or [], f["required"]))
+                    if answer:
+                        await ctx.human.select(loc, answer)
+                        filled[label] = answer
+                elif kind == "combobox":
+                    options = await _combobox_options(ctx, loc)
+                    answer = await ctx.answer(Field(label, "select" if options else "text", options or None, f["required"]))
+                    if answer:
+                        if not await _pick_combobox(ctx, loc, answer):
+                            raise NeedsHuman(label, answer, options)
+                        filled[label] = answer
+                else:
+                    answer = await ctx.answer(Field(label, kind, None, f["required"]))
+                    if answer:
+                        await ctx.human.type(loc, answer, typos=kind == "textarea")
+                        filled[label] = answer
+            except NeedsHuman as nh:
+                pending.append((nh.question, nh.proposed, nh.options))
+            except PlaywrightTimeout:
+                # One stubborn field must not sink the whole application.
+                if f.get("required"):
+                    pending.append((label.rstrip("* ").strip() or "A required field", "", f.get("options") or []))
+                else:
+                    db.log(f"Skipped optional field that wouldn't respond: {label[:80]}", level="warning", kind="apply")
     if pending:
-        raise NeedsInput(pending)
+        unique = {q: (q, proposed, options) for q, proposed, options in reversed(pending)}
+        raise NeedsInput([unique[q] for q in dict.fromkeys(q for q, _, _ in pending)])
     return filled
 
 

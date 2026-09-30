@@ -412,9 +412,18 @@ async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None 
         await handle_logged_out(job.source)
         app = None
     except Exception as e:  # noqa: BLE001
-        job.status, job.status_reason = JobStatus.FAILED, f"{type(e).__name__}: {e}"[:300]
-        app.error = job.status_reason
-        db.log(f"Apply error: {job.status_reason}", level="error", source=job.source, kind="apply", job_id=job.id)
+        if type(e).__name__ == "TargetClosedError" or "has been closed" in str(e):
+            # The browser window closed mid-form (restart, you closed it, Chrome crashed). Nothing was
+            # submitted as far as we know — park it for you rather than calling it a failure.
+            job.status, job.status_reason = JobStatus.REVIEW, "browser closed mid-application — check, then retry"
+            app = None
+            await browsers.close()
+            db.log(f"Interrupted: {job.title} @ {job.company} (browser closed)", level="warning",
+                   source=job.source, kind="apply", job_id=job.id)
+        else:
+            job.status, job.status_reason = JobStatus.FAILED, f"{type(e).__name__}: {e}"[:300]
+            app.error = job.status_reason
+            db.log(f"Apply error: {job.status_reason}", level="error", source=job.source, kind="apply", job_id=job.id)
     job.updated_at = utcnow()
     db.save(job)
     if app is not None and not dry_run:
