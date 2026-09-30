@@ -1,0 +1,38 @@
+<div class="card" style="margin-bottom:16px">
+<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+<h2>Automation {{ 'running' if automation.enabled and automation.live else 'not running' }}</h2>
+<span class="small muted">Updated {{ automation.now.strftime('%H:%M:%S') }} · {{ automation.timezone }} · refreshes every 5 seconds</span>
+</div>
+{% if automation.global_pause %}<p class="st-review">Global pause is on. Automatic applications are paused.</p>{% endif %}
+{% if not automation.enabled %}<p>Manual mode is on. Use Preview &amp; apply to choose individual jobs.</p>
+{% elif not automation.live %}<p class="st-failed">The scheduler is not responding in this process. <a href="/errors">Check the error log.</a></p>
+{% else %}<p>Discovery and scoring run in the background. Applications follow each source’s hours and daily limits. LinkedIn prepares materials for you to submit.</p>{% endif %}
+<div class="kpis">
+{% for key,label in [('new','Awaiting screening'),('queued','Queued'),('applying','Applying now'),('review','Need review'),('manual','Manual submission'),('applied','Applied'),('failed','Failed')] %}
+<a class="kpi" href="/jobs?status={{ key }}" style="text-decoration:none"><div class="v">{{ automation.counts.get(key,0) }}</div><div class="l">{{ label }}</div></a>
+{% endfor %}
+</div>
+<h3>What is happening now</h3>
+<table><tr><th>Worker</th><th>Status / current action</th><th>Last successful check</th><th>Next check</th></tr>
+{% for worker in automation.workers if not worker.name.startswith('apply:') %}
+<tr><td>{{ {'triage':'Job screening','discovery':'Job discovery','inbox':'Gmail replies','telegram':'Telegram','summary':'Daily summary'}.get(worker.name,worker.name) }}</td>
+<td><b>{{ worker.phase }}</b> · {{ worker.message }}{% if worker.job_id %} · <a href="/jobs/{{ worker.job_id }}/preview">View job</a>{% endif %}</td>
+<td class="small">{{ worker.last_ok|local('%H:%M:%S') if worker.last_ok else '—' }}</td>
+<td class="small">{{ worker.next_at|local('%H:%M:%S') if worker.next_at else 'In progress' }}</td></tr>
+{% else %}<tr><td colspan="4">No workers registered.</td></tr>{% endfor %}
+</table>
+<h3>Why applications are waiting</h3>
+<table><tr><th>Source</th><th>Schedule</th><th>Current status</th><th>Today / limit</th></tr>
+{% for source in automation.sources %}<tr><td>{{ source.name }}</td><td>{{ source.hours }}</td>
+<td>{{ source.reason or source.status }}{% if source.opens_at %} · next eligible {{ source.opens_at }}{% elif source.next %} · {{ source.next }}{% endif %}{% if source.mode == 'assist' %} · manual submission{% endif %}{% if source.worker %}<div class="small muted">Worker: {{ source.worker.phase }} · {{ source.worker.message }}{% if source.worker.updated_at %} · checked {{ source.worker.updated_at|local('%H:%M:%S') }}{% endif %}</div>{% endif %}</td>
+<td>{{ source.today }} / {{ source.cap }}</td></tr>{% endfor %}
+</table>
+</div>
+<div class="card" style="margin-bottom:16px">
+<h2>In progress and waiting</h2>
+<table><tr><th>Job</th><th>Source</th><th>State</th><th>What happens next</th><th></th></tr>
+{% for row in automation.queue %}{% set job = row.job %}<tr><td>{{ job.title }}<div class="small muted">{{ job.company }} · #{{ job.id }}</div></td><td>{{ job.source }}</td><td>{{ job.status }}</td><td>{{ row.reason }}</td><td><a href="/jobs/{{ job.id }}/preview">Preview &amp; apply</a></td></tr>
+{% else %}<tr><td colspan="5">No jobs queued yet. Check job screening above and the review queue.</td></tr>{% endfor %}
+</table>
+</div>
+<div class="card" style="margin-bottom:16px"><h2>Recent activity</h2>{% with events=automation.events %}{% include '_feed.html' %}{% endwith %}<p><a href="/errors">Errors and technical details →</a></p></div>

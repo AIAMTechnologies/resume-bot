@@ -155,8 +155,8 @@ async def _check_api(gmail_api) -> None:
         db.log("Inbox tracker connected (Gmail API)", kind="inbox", level="success")
         return
     for ts, sender, subject, body in await asyncio.to_thread(gmail_api.fetch_since, last_ts):
-        db.kv_set("gmail_last_ts", ts)
         await _process(sender, subject, body)
+        db.kv_set("gmail_last_ts", ts)
 
 
 async def _check_imap() -> None:
@@ -169,5 +169,5 @@ async def _check_imap() -> None:
         return
     msgs = await asyncio.to_thread(fetch_new, last_uid)
     for uid, sender, subject, body in msgs:
-        db.kv_set("gmail_last_uid", uid)
         await _process(sender, subject, body)
+        db.kv_set("gmail_last_uid", uid)

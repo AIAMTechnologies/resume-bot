@@ -56,6 +56,16 @@ def back(request: Request, fallback: str = "/") -> RedirectResponse:
     return RedirectResponse(request.headers.get("referer") or fallback, status_code=303)
 
 
+@app.get("/api/automation")
+async def automation_status():
+    return stats.automation()
+
+
+@app.get("/partials/automation", response_class=HTMLResponse)
+async def automation_partial(request: Request):
+    return templates.TemplateResponse(request, "_automation.html", {"automation": stats.automation()})
+
+
 # ---------------- pages ----------------
 
 @app.get("/", response_class=HTMLResponse)
@@ -90,7 +100,7 @@ async def applications(request: Request, source: str = "", status: str = "", q: 
     apps = stats.recent_applications(500, source=source, status=status, q=q)
     with db.session() as s:
         jobs = {j.id: j for j in s.exec(db.select(Job).where(Job.id.in_([a.job_id for a in apps])))}
-    return page(request, "applications.html", apps=apps, jobs=jobs, f={"source": source, "status": status, "q": q})
+    return page(request, "applications.html", apps=apps, jobs=jobs, automation=stats.automation(), f={"source": source, "status": status, "q": q})
 
 
 @app.get("/applications/{app_id}", response_class=HTMLResponse)

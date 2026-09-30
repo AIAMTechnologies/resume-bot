@@ -11,9 +11,9 @@ greenhouse:
   - stripe
   - databricks
   - figma
-lever:
-  - plaid
+lever: []
 ashby:
+  - plaid
   - wealthsimple
   - cohere
   - koho

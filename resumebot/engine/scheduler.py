@@ -8,8 +8,9 @@ from datetime import timedelta
 from .. import db
 from ..config import env, settings
 from ..models import utcnow
+from ..diagnostics import redact
 from ..notify import telegram
-from . import pipeline
+from . import pipeline, runtime
 from .pacing import Gate
 
 BROWSER_SOURCES = {"linkedin", "indeed"}
@@ -18,13 +19,18 @@ BROWSER_SOURCES = {"linkedin", "indeed"}
 async def _guard(name: str, coro_fn, interval: float):
     """Run coro_fn forever with a pause between runs; never let one crash kill the bot."""
     while True:
+        runtime.update(name, phase="running", message="Checking", started_at=utcnow(), next_at=None)
         try:
-            await coro_fn()
+            result = await coro_fn()
+            runtime.update(name, phase="waiting", message=str(result or "Check complete"), last_ok=utcnow())
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
+            runtime.update(name, phase="error", message=redact(f"{type(e).__name__}: {e}")[:300])
             db.log(f"{name} loop error: {type(e).__name__}: {e}", level="error", kind="system")
-        await asyncio.sleep(interval * random.uniform(0.85, 1.15))
+        delay = interval * random.uniform(0.85, 1.15)
+        runtime.update(name, next_at=utcnow() + timedelta(seconds=delay))
+        await asyncio.sleep(delay)
 
 
 async def discovery_loop():
@@ -43,6 +49,7 @@ async def discovery_loop():
                 d = Gate(name).check()
                 if not d.ok and d.reason not in ("waiting (human gap)",) and "cap" not in d.reason:
                     continue
+            runtime.update("discovery", message=f"Finding jobs on {name}")
             await pipeline.discover(name)
     await _guard("discovery", run, 300)
 
@@ -54,14 +61,15 @@ async def triage_loop():
 async def source_loop(name: str):
     async def run():
         if db.kv_get("global_pause"):
-            return
-        await pipeline.tick_source(name)
-    await _guard(f"{name} apply", run, 30)
+            return "Global pause is on"
+        return await pipeline.tick_source(name)
+    await _guard(f"apply:{name}", run, 30)
 
 
 async def inbox_loop():
     from ..inbox import gmail_api
     if not (gmail_api.configured() or (env().gmail_address and env().gmail_app_password)):
+        runtime.update("inbox", phase="disabled", message="Gmail is not configured")
         return
     from ..inbox import gmail
     await _guard("inbox", gmail.check_inbox, settings().inbox.poll_minutes * 60)
@@ -94,6 +102,7 @@ async def run_all() -> list[asyncio.Task]:
     for name, cfg in settings().pacing.sources.items():
         if cfg.enabled and cfg.mode != "manual":
             tasks.append(asyncio.create_task(source_loop(name), name=f"apply:{name}"))
+    runtime.register(tasks)
     db.log("Scheduler started", kind="system", level="success")
     await telegram.send("🤖 Resume Bot started. /status for details.")
     return tasks

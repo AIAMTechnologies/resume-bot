@@ -5,6 +5,7 @@ import random
 import time
 from pathlib import Path
 
+from sqlalchemy import case
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
@@ -78,9 +79,15 @@ async def discover(source_name: str) -> int:
 
 async def triage_new(limit: int = 25) -> None:
     cfg = settings().matching
+    keywords = settings().targets.title_keywords
+    priority = case(*[(Job.title.ilike(f"%{word}%"), rank) for rank, word in enumerate(keywords)],
+                    else_=len(keywords)) if keywords else Job.discovered_at
     with db.session() as s:
-        new_jobs = list(s.exec(select(Job).where(Job.status == JobStatus.NEW).order_by(Job.discovered_at).limit(limit)))
-    for job in new_jobs:
+        new_jobs = list(s.exec(select(Job).where(Job.status == JobStatus.NEW)
+                              .order_by(priority, Job.discovered_at).limit(limit)))
+    from . import runtime
+    for index, job in enumerate(new_jobs, 1):
+        runtime.update("triage", message=f"Checking {index}/{len(new_jobs)}: #{job.id} {job.title} @ {job.company}", job_id=job.id)
         ok, why = matcher.prefilter(job)
         if not ok:
             job.status, job.status_reason = JobStatus.SKIPPED, why
@@ -91,6 +98,7 @@ async def triage_new(limit: int = 25) -> None:
             db.save(job)
             continue
         try:
+            runtime.update("triage", message=f"Scoring {index}/{len(new_jobs)}: #{job.id} {job.title} @ {job.company}")
             job.match_score, job.match_reasons, job.missing_skills = await matcher.score(job)
         except Exception as e:  # noqa: BLE001
             db.log(f"Scoring failed for #{job.id}: {e}", level="error", kind="score", job_id=job.id)
@@ -375,6 +383,8 @@ async def tick_source(source_name: str) -> str:
                 return "challenge"
             gate.record_action()
             return f"browsed #{d.id}"
+    from . import runtime
+    runtime.update(f"apply:{source_name}", message=f"Preparing and applying: #{job.id} {job.title} @ {job.company}", job_id=job.id)
     await apply_job(job)
     gate.record_action()
-    return f"applied #{job.id}"
+    return f"#{job.id}: {job.status} — {job.status_reason}"

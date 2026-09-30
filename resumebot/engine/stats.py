@@ -152,3 +152,53 @@ def pending_reviews() -> list[ReviewItem]:
 def recent_events(limit: int = 60) -> list[Event]:
     with db.session() as s:
         return list(s.exec(select(Event).order_by(Event.ts.desc()).limit(limit)))
+
+
+def automation() -> dict:
+    from . import actions, runtime
+    cfg = settings()
+    now = local_now()
+    with db.session() as s:
+        counts = dict(s.exec(select(Job.status, func.count()).group_by(Job.status)).all())
+        pending = list(s.exec(select(Job).where(Job.status.in_([
+            JobStatus.APPLYING, JobStatus.QUEUED, JobStatus.REVIEW, JobStatus.MANUAL]))
+            .order_by(Job.match_score.desc()).limit(30)))
+    workers = runtime.snapshot()
+    workers_by_name = {w["name"]: w for w in workers}
+    health = source_health()
+    for source in health:
+        source["worker"] = workers_by_name.get(f"apply:{source['name']}")
+        hours = cfg.pacing.sources[source['name']].active_hours
+        source['hours'] = f'{hours[0]:02}:00–{hours[1]:02}:00'
+        source['queued'] = sum(1 for j in pending if j.source == source['name'] and j.status == JobStatus.QUEUED)
+        opening = now.replace(hour=hours[0], minute=0, second=0, microsecond=0)
+        if opening <= now:
+            opening += timedelta(days=1)
+        source['opens_at'] = opening.strftime('%a %H:%M') if source['status'] == 'outside active hours' else ''
+    health_by_name = {h['name']: h for h in health}
+    queue = []
+    for job in sorted(pending, key=lambda j: (j.status != JobStatus.APPLYING, j.status != JobStatus.QUEUED)):
+        source = health_by_name.get(job.source, {})
+        if actions.busy(job.id):
+            reason = 'Preparing preview / processing your action'
+        elif job.status == JobStatus.APPLYING:
+            reason = 'Tailoring resume or filling the application'
+        elif job.status == JobStatus.MANUAL:
+            reason = 'Ready for you to submit on the job website'
+        elif job.status == JobStatus.REVIEW:
+            reason = job.status_reason or 'Needs your review'
+        elif not db.kv_get('automatic_mode'):
+            reason = 'Waiting for automated mode'
+        elif db.kv_get('global_pause'):
+            reason = 'Global pause is on'
+        else:
+            reason = source.get('reason') or source.get('status', 'Manual source')
+            if source.get('opens_at'):
+                reason += f" · eligible {source['opens_at']}"
+            if job.source == 'linkedin':
+                reason += ' · prepares a manual application'
+        queue.append({'job': job, 'reason': reason})
+    return {'enabled': bool(db.kv_get('automatic_mode')), 'global_pause': bool(db.kv_get('global_pause')),
+            'now': now, 'timezone': cfg.timezone, 'counts': counts, 'sources': health,
+            'workers': workers, 'live': any(w['name'] == 'triage' and w['phase'] not in ('stopped','failed') for w in workers),
+            'queue': queue, 'events': recent_events(8)}

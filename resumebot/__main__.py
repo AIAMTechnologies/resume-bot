@@ -64,6 +64,9 @@ def run(dashboard_only: bool = typer.Option(False, "--dashboard-only", help="Das
         db.kv_set("automatic_mode", not dashboard_only)
         from .notify import telegram
         tasks = [asyncio.create_task(telegram.poll_forever(), name="telegram")] if dashboard_only else await scheduler.run_all()
+        if dashboard_only:
+            from .engine import runtime
+            runtime.register(tasks)
         console.print(f"[green]Dashboard:[/] http://{env().dashboard_host}:{env().dashboard_port}"
                       + ("  [yellow](manual mode: dashboard + Telegram)[/]" if dashboard_only else ""))
         try:

@@ -119,3 +119,17 @@ when diagnostic database writes fail. Request bodies, headers, and traceback loc
 are not logged; configured credentials and common token patterns are redacted.
 Logs stay local under the Git-ignored `data/` directory. Capture begins when this
 version starts; older activity remains in the overview feed.
+
+## Live automation visibility
+
+The Applications page now includes a live panel that refreshes every five seconds:
+job counts at each stage, the exact role being screened, worker liveness, last and
+next checks, source schedules, and the reason each queued job is waiting. Completed
+applications appear separately in Application history. `/api/automation` exposes
+the same status for diagnostics. Worker liveness comes from the running tasks,
+not just a saved automated-mode flag.
+
+Screening prioritizes titles in the configured `targets.title_keywords` order,
+then discovery time. Existing match thresholds and review rules still apply.
+Source working hours are set independently in local `config/settings.yaml`;
+`[0, 24]` allows a source to run at any hour without changing its daily caps or gaps.
