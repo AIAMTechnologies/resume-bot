@@ -15,7 +15,7 @@ from playwright.async_api import TimeoutError as PlaywrightTimeout
 
 from .. import db
 from ..config import answers
-from ..engine.questions import Field, NeedsHuman, from_memory
+from ..engine.questions import WORK_HISTORY_RE, Field, NeedsHuman, from_memory
 from .base import ApplyContext, ManualRequired, NeedsInput
 
 if TYPE_CHECKING:
@@ -177,21 +177,47 @@ async def _clickable(ctx: ApplyContext, loc: "Locator") -> "Locator":
     return loc
 
 
-async def _combobox_options(ctx: ApplyContext, loc: "Locator") -> list[str]:
+OPTION_SEL = "[role=option]:visible, [role=listbox] [class*=option]:visible"
+
+
+async def _visible_options(ctx: ApplyContext) -> list[str]:
+    return [o.strip() for o in await ctx.page.locator(OPTION_SEL).all_inner_texts() if o.strip()]
+
+
+SEARCH_BOX_RE = re.compile(r"locat|city|where .{0,20}(based|live|located)|address|residence|school|university", re.I)
+
+
+async def _combobox_options(ctx: ApplyContext, loc: "Locator", label: str = "") -> list[str]:
+    """The dropdown's choices. Some (Ashby) only list them after you start typing, so probe with a letter."""
     await ctx.human.click(loc)
     await asyncio.sleep(random.uniform(0.4, 0.9))
-    opts = await ctx.page.locator("[role=option]:visible, [role=listbox] [class*=option]:visible").all_inner_texts()
+    opts = await _visible_options(ctx)
+    if not opts and not SEARCH_BOX_RE.search(label):  # place/school boxes are searches, not menus
+        seen: list[str] = []
+        for probe in ("e", "a"):
+            await loc.fill(probe)
+            await asyncio.sleep(random.uniform(0.8, 1.3))
+            seen += [o for o in await _visible_options(ctx) if o not in seen]
+        await loc.fill("")
+        # A long list of places means it's a search box (location), not a fixed menu: let the answer drive it.
+        opts = seen if len(seen) < 40 else []
     await ctx.page.keyboard.press("Escape")
-    return [o.strip() for o in opts if o.strip()][:60]
+    return opts[:60]
 
 
 async def _pick_combobox(ctx: ApplyContext, loc: "Locator", answer: str) -> bool:
-    await ctx.human.type(loc, answer[:40], typos=False)
-    await asyncio.sleep(random.uniform(0.6, 1.2))
-    option = ctx.page.locator("[role=option]:visible, [role=listbox] [class*=option]:visible").filter(has_text=answer).first
-    if await option.count():
-        await ctx.human.click(option)
-        return True
+    """Type, then click the best-matching suggestion. Tries the full answer, then its first part
+    ("Toronto, ON, Canada" → "Toronto"), since suggestions are often worded differently."""
+    from ..engine.questions import closest_option
+    queries = [answer[:40], answer.split(",")[0].strip(), answer.split()[0] if answer.split() else ""]
+    for query in dict.fromkeys(q for q in queries if q):
+        await ctx.human.type(loc, query, typos=False)
+        await asyncio.sleep(random.uniform(0.9, 1.5))
+        opts = await _visible_options(ctx)
+        pick = next((o for o in opts if o.lower() == answer.lower()), None) or (closest_option(answer, opts) if opts else None)
+        if pick:
+            await ctx.human.click(ctx.page.locator(OPTION_SEL).filter(has_text=re.compile(rf"^\s*{re.escape(pick)}\s*$")).first)
+            return True
     await ctx.page.keyboard.press("Escape")
     return False
 
@@ -288,7 +314,8 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
                 if kind in ("radio", "checkgroup"):
                     if f.get("checked"):
                         continue
-                    answer = await ctx.answer(Field(label, "radio", f["options"], f["required"]))
+                    answer = await ctx.answer(Field(label, "radio", f["options"], f["required"],
+                                                    (f.get("selectors") or [""])[0]))
                     if not answer:
                         continue
                     # Checkbox groups can take several answers ("English, Urdu").
@@ -334,8 +361,8 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
                             await ctx.human.click(await _clickable(ctx, loc))
                         filled[label] = "checked" if agree else "unchecked"
                         continue
-                    if f["required"] and not checked:
-                        answer = await ctx.answer(Field(label, "checkbox", ["Yes", "No"], True))
+                    if (f["required"] or WORK_HISTORY_RE.match(f.get("selector", ""))) and not checked:
+                        answer = await ctx.answer(Field(label, "checkbox", ["Yes", "No"], True, f.get("selector", "")))
                         if answer.lower().startswith("y"):
                             await ctx.human.click(await _clickable(ctx, loc))
                         filled[label] = answer
@@ -344,19 +371,20 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
                 if f.get("value"):  # prefilled (e.g. LinkedIn profile data) — leave as-is
                     continue
                 if kind == "select":
-                    answer = await ctx.answer(Field(label, "select", f.get("options") or [], f["required"]))
+                    answer = await ctx.answer(Field(label, "select", f.get("options") or [], f["required"], f.get("selector", "")))
                     if answer:
                         await ctx.human.select(loc, answer)
                         filled[label] = answer
                 elif kind == "combobox":
-                    options = await _combobox_options(ctx, loc)
-                    answer = await ctx.answer(Field(label, "select" if options else "text", options or None, f["required"]))
+                    options = await _combobox_options(ctx, loc, label)
+                    answer = await ctx.answer(Field(label, "select" if options else "text", options or None, f["required"],
+                                                    f.get("selector", "")))
                     if answer:
                         if not await _pick_combobox(ctx, loc, answer):
                             raise NeedsHuman(label, answer, options)
                         filled[label] = answer
                 else:
-                    answer = await ctx.answer(Field(label, kind, None, f["required"]))
+                    answer = await ctx.answer(Field(label, kind, None, f["required"], f.get("selector", "")))
                     if answer:
                         await ctx.human.type(loc, answer, typos=kind == "textarea")
                         filled[label] = answer
