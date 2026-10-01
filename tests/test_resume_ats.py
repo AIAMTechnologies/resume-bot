@@ -138,3 +138,21 @@ def test_supported_job_keywords_are_backfilled_word_for_word():
     extra = next(g for g in content["skills"] if g["category"] == "Additional Skills")
     assert "IDS/IPS" in extra["items"]
     assert "Splunk" not in extra["items"]  # never claimed without evidence
+
+
+
+import pytest
+
+
+@pytest.mark.parametrize("text,keyword", [
+    ("Wrote KQL hunting queries", "Kusto Query Language"), ("Enforced MFA and Conditional Access", "multi-factor authentication"),
+    ("Least privilege RBAC model", "role-based access control"), ("B.Tech, Automation Engineering", "Bachelor's degree"),
+    ("Maintained risk registers", "risk register"), ("Tuned Microsoft 365 Defender", "Microsoft Defender XDR"),
+    ("Ran post-incident reviews", "postmortems"),
+])
+def test_security_synonyms_count_as_matches(text, keyword):
+    assert ats.has_keyword(ats.normalize(text), keyword)
+
+
+def test_unrelated_terms_still_missing():
+    assert not ats.has_keyword(ats.normalize("Microsoft Sentinel and Defender"), "Splunk")

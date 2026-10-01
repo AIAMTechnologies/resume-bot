@@ -24,6 +24,26 @@ ALIASES: dict[str, list[str]] = {
     "c#": ["csharp", ".net"],
     "user experience": ["ux"],
     "user interface": ["ui"],
+    # Security & identity: the same thing written two ways should count as a match.
+    "kusto query language": ["kql"],
+    "multi-factor authentication": ["mfa", "multifactor authentication", "2fa", "two-factor authentication"],
+    "role-based access control": ["rbac"],
+    "single sign-on": ["sso"],
+    "security orchestration automation and response": ["soar"],
+    "microsoft defender xdr": ["microsoft 365 defender", "m365 defender", "defender xdr"],
+    "microsoft defender for endpoint": ["mde", "defender for endpoint"],
+    "microsoft entra id": ["entra id", "azure ad", "azure active directory"],
+    "endpoint detection and response": ["edr"],
+    "extended detection and response": ["xdr"],
+    "security information and event management": ["siem"],
+    "identity and access management": ["iam"],
+    "data loss prevention": ["dlp"],
+    "governance risk and compliance": ["grc"],
+    "root cause analysis": ["rca"],
+    "post-incident review": ["postmortem", "post-mortem", "post-incident reviews", "post-incident improvements"],
+    "threat intelligence": ["cyber threat intelligence", "cti"],
+    "information security": ["infosec"],
+    "bachelor's degree": ["bachelor", "bachelors", "bachelor of technology", "b.tech", "b.sc", "undergraduate degree"],
 }
 REQUIRED_SECTIONS = ["experience", "education", "skills"]
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
@@ -37,15 +57,21 @@ def normalize(text: str) -> str:
 def _variants(keyword: str) -> list[str]:
     k = keyword.lower().strip()
     out = {k}
+    keys = {k, k[:-1]} if k.endswith("s") and len(k) > 3 else {k}  # "postmortems" → "postmortem"
     for canon, alts in ALIASES.items():
-        if k == canon or k in alts:
+        if keys & ({canon} | set(alts)):
             out.add(canon)
             out.update(alts)
     return [normalize(v).strip() for v in out if v]
 
 
 def has_keyword(norm_text: str, keyword: str) -> bool:
-    return any(f" {v} " in norm_text for v in _variants(keyword))
+    """Phrase match with aliases and simple plurals ("risk register" == "risk registers")."""
+    for v in _variants(keyword):
+        forms = {v, v + "s", v[:-1] if v.endswith("s") and len(v) > 3 else v}
+        if any(f" {f} " in norm_text for f in forms if f):
+            return True
+    return False
 
 
 def coverage(text: str, keywords: list[str]) -> tuple[float, list[str], list[str]]:
