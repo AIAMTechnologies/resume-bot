@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 
 HOURS_PER_YEAR = 2080
-_NUM = r"\$?\s?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?([kK])?"
+_NUM = r"(?:[A-Z]{1,3})?\$?\s?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?([kK])?"  # "$", "CA$", "US$"
 RANGE_RE = re.compile(_NUM + r"\s*(?:-|–|—|to)\s*" + _NUM + r"(?P<tail>[^\n]{0,40})")
 SINGLE_RE = re.compile(r"(?:salary|base pay|base salary|compensation|pay range|ote)[^\n$]{0,40}\$\s?"
                        r"(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?([kK])?", re.I)

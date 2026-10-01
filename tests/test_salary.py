@@ -20,3 +20,8 @@ def test_floor():
     assert below_floor("", "The pay range is $50,000 to $65,000", 100_000) == (True, 65_000)
     assert below_floor("", "Range $90,000 - $120,000", 100_000) == (False, 120_000)  # top clears the floor
     assert below_floor("", "No pay posted", 100_000) == (False, None)                # unknown pay passes
+
+
+def test_currency_prefixed_hourly_range():
+    assert below_floor("CA$25.00 – CA$31.25 per hour", "", 100000) == (True, 31.25 * 2080)
+    assert posted_max("US$150,000 - US$190,000") == 190000
