@@ -1,3 +1,4 @@
+import pytest
 from resumebot.engine import matcher
 from resumebot.models import Job
 from resumebot.sources.routing import route
@@ -101,3 +102,18 @@ def test_queued_job_rechecked_before_applying():
     assert picked is None or picked.id != bad.id
     with db.session() as s:
         assert s.get(Job, bad.id).status == JobStatus.SKIPPED
+
+
+
+@pytest.mark.parametrize("title,ok", [
+    ("Senior Security Engineer - Detection & Response", True), ("Staff CSIRT Analyst", True),
+    ("SOC Support Specialist", True), ("Vulnerability Management Engineer", True), ("Senior AI Engineer", True),
+    ("Sales Engineer 2 (Customer Success)", False), ("Implementation Consultant I, Commercial", False),
+    ("Software Engineer I, Frontend", False), ("Account Associate - EMEA", False), ("IT Systems Engineer", False),
+])
+def test_title_filter_needs_a_meaningful_match(title, ok):
+    targets = ["Senior Information Security Analyst", "Security Operations Manager", "Incident Response Lead",
+               "Security Engineer", "Cloud Security Engineer", "GRC Analyst", "AI Automation Engineer"]
+    keywords = ["security", "cyber", "soc", "incident", "threat", "iam", "identity", "grc", "siem", "dfir",
+                "infosec", "detection", "vulnerability", "risk", "automation", "csirt"]
+    assert matcher.title_ok(title, targets, keywords) is ok

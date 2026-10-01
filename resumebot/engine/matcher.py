@@ -67,15 +67,24 @@ def location_ok(job: Job) -> tuple[bool, str]:
     return False, f"location {job.location}"
 
 
+GENERIC_TITLE_WORDS = {"senior", "junior", "sr", "jr", "lead", "staff", "principal", "i", "ii", "iii", "iv",
+                       "engineer", "analyst", "manager", "specialist", "consultant", "associate", "director",
+                       "head", "officer", "architect", "administrator", "developer", "of", "and", "the"}
+
+
 def title_ok(title: str, targets: list[str], keywords: list[str] | None = None) -> bool:
     if not targets:
         return True
-    words = set(norm(title).split())
-    if keywords and any(norm(k) in words or norm(k) in norm(title) for k in keywords):
+    t_norm = norm(title)
+    words = set(t_norm.split())
+    # Whole-word keyword match ("soc" must not match "aSSOCiate").
+    if keywords and any(re.search(rf"\b{re.escape(norm(k))}\b", t_norm) for k in keywords if norm(k)):
         return True
     for t in targets:
         tw = set(norm(t).split()) - {"senior", "junior", "sr", "jr", "lead", "i", "ii", "iii"}
-        if tw and len(tw & words) / len(tw) >= 0.5:
+        shared = tw & words
+        # Sharing only generic words ("Engineer") isn't a match: "Sales Engineer" ≠ "Security Engineer".
+        if tw and len(shared) / len(tw) >= 0.5 and shared - GENERIC_TITLE_WORDS:
             return True
     return False
 

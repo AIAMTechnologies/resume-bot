@@ -13,8 +13,7 @@ targets:
     preferred_regions: []  # Optional state/city labels to screen first among similar roles.
   employment_types: ["full_time", "contract"]
   # Titles containing any of these are always scored by the AI (it judges fit better than titles do).
-  title_keywords: [security, cyber, soc, incident, threat, iam, identity, grc, siem, dfir, infosec,
-                   detection, vulnerability, risk, automation]
+  title_keywords: [security, cyber, soc, incident, threat, iam, identity, grc, siem, dfir, infosec, detection, vulnerability, risk, automation, csirt, cirt, forensic, forensics, malware, penetration, pentest, red team, blue team, appsec, devsecops, privacy, compliance, governance, trust]
   exclude_title_keywords: ["intern", "principal", "director", "vp "]
   exclude_companies: []
   min_salary_cad: null

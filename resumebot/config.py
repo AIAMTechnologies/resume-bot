@@ -77,7 +77,9 @@ class Targets(BaseModel):
     # Any title containing one of these goes to AI scoring even if it doesn't match a target title.
     title_keywords: list[str] = Field(default_factory=lambda: [
         "security", "cyber", "soc", "incident", "threat", "iam", "identity", "grc", "siem", "dfir",
-        "infosec", "detection", "vulnerability", "risk", "automation"])
+        "infosec", "detection", "vulnerability", "risk", "automation", "csirt", "cirt", "forensic", "forensics",
+        "malware", "penetration", "pentest", "red team", "blue team", "appsec", "devsecops", "privacy",
+        "compliance", "governance", "trust"])
     locations: Locations = Field(default_factory=Locations)
     employment_types: list[str] = Field(default_factory=lambda: ["full_time"])
     exclude_title_keywords: list[str] = Field(default_factory=list)
