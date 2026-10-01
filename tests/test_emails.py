@@ -32,3 +32,12 @@ async def test_inbox_emails_are_stored_and_linked(monkeypatch):
         today = (await client.get("/applications?when=today")).text
         assert "Applied today" in today and "Security Analyst" in today
         assert 'href="/applications?when=today"' in (await client.get("/partials/kpis")).text
+
+
+async def test_application_receipt_with_future_rejection_boilerplate_is_confirmed():
+    subject = "Thank you for applying to SentinelOne!"
+    body = ("We received your application and look forward to reviewing it. "
+            "If you are not selected for this position, we will keep your profile in our talent community.")
+    status, _ = await gmail.classify(subject, body)
+    assert status == AppStatus.CONFIRMED
+    assert gmail._rule_class(subject, body) == AppStatus.CONFIRMED

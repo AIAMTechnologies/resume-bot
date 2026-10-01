@@ -33,6 +33,12 @@ RULES = [
                                      r"received your application|application (was )?received", re.I)),
 ]
 
+# Receipt emails often explain what would happen *if* a candidate is not selected.
+# That boilerplate is not a decision about the candidate.
+HYPOTHETICAL_REJECTION = re.compile(
+    r"\bif (?:you|the candidate) (?:are|were|are not) selected\b|"
+    r"\bif you are not selected\b", re.I)
+
 
 def _decode(s: str | None) -> str:
     return str(make_header(decode_header(s))) if s else ""
@@ -100,6 +106,8 @@ def match_application(sender: str, subject: str, body: str) -> Application | Non
 async def classify(subject: str, body: str) -> tuple[str, str]:
     text = f"{subject}\n{body}"
     hits = [status for status, rx in RULES if rx.search(text)]
+    if AppStatus.REJECTED in hits and HYPOTHETICAL_REJECTION.search(text):
+        hits.remove(AppStatus.REJECTED)
     if len(hits) == 1:
         return hits[0], ""
     if AppStatus.REJECTED in hits and AppStatus.OFFER not in hits:
@@ -115,6 +123,8 @@ async def classify(subject: str, body: str) -> tuple[str, str]:
 
 def _rule_class(subject: str, body: str) -> str:
     hits = [status for status, rx in RULES if rx.search(f"{subject}\n{body}")]
+    if AppStatus.REJECTED in hits and HYPOTHETICAL_REJECTION.search(f"{subject}\n{body}"):
+        hits.remove(AppStatus.REJECTED)
     return hits[0] if len(hits) == 1 else (AppStatus.REJECTED if AppStatus.REJECTED in hits else "other")
 
 
