@@ -1,4 +1,4 @@
-# Resume Bot — Handoff (2026-10-01, ~5:50 pm Toronto)
+# Resume Bot — Handoff (2026-10-01, ~6:25 pm Toronto)
 
 Paste the prompt at the bottom into a new Claude Code chat opened in `/Users/ammaralam/Documents/Resume Bot`.
 
@@ -15,10 +15,16 @@ Paste the prompt at the bottom into a new Claude Code chat opened in `/Users/amm
 ## Current state
 - Bot is running **detached** (`nohup .venv/bin/resumebot run`, parent PID 1, log `data/logs/bot.log`).
   Dashboard: http://127.0.0.1:8765. Automation ON, global pause OFF.
+- **Greenhouse is PAUSED** (dashboard source pause) — Ammar is away until ~1 am Oct 2 and can't enter the emailed
+  codes. 8 Greenhouse jobs sit queued for him (Chime, GitLab, Abnormal, Affirm, Gemini ×2, Vercel, Betterment).
+  When he's back: resume Greenhouse on the dashboard (or `POST /control/resume/greenhouse`) and tell him per 🔐 ping.
+- Ashby + Lever keep running (no codes). Ammar gave permission to **answer pending application questions for him**
+  (best effort from his profile/answers; never claim experience the profile doesn't show; list what was answered).
 - Latest commit: see `git log -5`. Working tree clean (stray `resumebot.db-shm/-wal` in repo root are junk).
-- Totals: ~22 jobs applied (21 submitted/confirmed applications). Queue ≈ 22 (incl. 8 OpenAI re-queued after
-  Ammar agreed to arbitration — the 2-per-company / 90-day cap will limit OpenAI to 2).
-- Review: ~92 borderline jobs (score 60–69) awaiting approve/skip, 4 manual cards (Workday-type portals).
+- Totals: 31 jobs applied (24 today, Oct 1). Review: ~77 borderline jobs (60 Greenhouse), 5 manual cards.
+- **Sysdig (Lever) is held as `failed`**: it showed an hCaptcha puzzle after Submit. Re-queue it when Ammar is at the
+  Mac — the bot now pings 🔐 and waits for him to solve it.
+- Cohere is now really excluded (`targets.exclude_companies` in settings.yaml + board removed + apply-time check).
 
 ## How applying works now
 - Portals: Greenhouse, Ashby, Lever each run **3 parallel lanes**, each application in its own Chrome tab
@@ -44,18 +50,19 @@ Paste the prompt at the bottom into a new Claude Code chat opened in `/Users/amm
 - Address/postal code are filled in (`contact.address`, `contact.postal_code`).
 
 ## Known issues / next steps
-1. Watch the queue; for each Telegram 🔐 ping Ammar enters the code. Re-queue Greenhouse jobs that time out.
-2. Review queue: ~92 borderline jobs — ask Ammar to approve/skip, or lower `auto_apply_score` (70) if he agrees.
-3. Applications already submitted that are likely under $100k (Ammar may withdraw): Huntress SOC Support
-   Specialist ($50–65k), Abnormal L1 Technical Support Engineer, Okta TAM Analyst (New Grad), Tailscale
-   Customer Support Engineer (Tier 1).
-4. Failures to look at: Stripe "submit button not found" (likely layout/cookie banner on Greenhouse embed),
-   Writer (Ashby) and Sysdig (Lever) "no confirmation; unknown state" — check `application.screenshot`
-   before retrying; they may actually be submitted (confirmation emails land in the Emails tab).
-5. 243 ML/AI jobs were re-screened after adding ML targeting; check how many queued.
-6. ATS keyword gaps Ammar may still fill (AWS/GCP, vuln-mgmt tools, SOAR, SOC 2/ISO, forensics tools,
-   Splunk, Okta/SSO, Terraform) — see conversation notes; add only what he confirms.
-7. Read `docs/APPLY_PLAYBOOK.md` first — per-portal quirks, questions that park jobs, run log. Keep it updated.
+1. When Ammar is back: resume Greenhouse, re-queue Sysdig, tell him each 🔐 ping (code or CAPTCHA).
+2. Review queue: ~77 borderline jobs — ask Ammar to approve/skip, or lower `auto_apply_score` (70) if he agrees.
+   Several are security roles that timed out on codes and were re-scored lower (Mercury, Twilio, Vercel, Roblox).
+3. Off-target applications went out today (Lightspeed Legal Ops, Mercury Support Ops PM, Ramp Technical Consultant ×2,
+   1Password GTM Analyst). Asked Ammar whether to tighten titles to security + ML/AI engineering only — unanswered.
+4. Likely-under-$100k applications Ammar may withdraw: Huntress SOC Support Specialist, Abnormal L1 Technical
+   Support Engineer, Okta TAM Analyst (New Grad), Tailscale Customer Support Engineer (Tier 1).
+5. Still `failed` from AI-quota errors (not re-queued; neither is a security/ML title): Chime Full-Stack Engineer
+   (#7154), MongoDB Software Engineer 3 (#7063).
+6. Restart without killing forms: global pause on → wait until no job is `applying` → `kill <pid>` → start again.
+   `pgrep -f "resumebot run"` also matches any shell whose command contains that text — check with `ps` first.
+7. Tests: run from a scratch copy with the example config (in-repo runs flake with PermissionError under the sandbox).
+8. Read `docs/APPLY_PLAYBOOK.md` first — per-portal quirks, questions that park jobs, run log. Keep it updated.
 
 ---
 
