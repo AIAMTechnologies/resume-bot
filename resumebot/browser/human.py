@@ -86,9 +86,11 @@ def reading_seconds(text: str, reading_wpm: tuple[int, int], cap: float = 90.0,
 # ---------- browser actor ----------
 
 class Human:
-    def __init__(self, page: "Page"):
+    def __init__(self, page: "Page", brisk: bool = False):
+        """brisk: company application portals — shorter reading and quicker typing (no account to protect)."""
         self.page = page
         self.cfg = settings().human
+        self.brisk = brisk
         vp = page.viewport_size or {"width": 1280, "height": 800}
         self.x, self.y = random.uniform(0, vp["width"]), random.uniform(0, vp["height"])
 
@@ -142,7 +144,7 @@ class Human:
             await self.page.keyboard.insert_text(text)
             await self.pause(0.5, 1.5)
             return
-        delays = key_delays(text, self.cfg.wpm)
+        delays = key_delays(text, (110, 150) if self.brisk else self.cfg.wpm)
         typo_every_char = self.cfg.typo_rate / 5 if typos else 0
         for ch, d in zip(text, delays):
             await asyncio.sleep(d)
@@ -166,7 +168,7 @@ class Human:
 
     async def read(self, text: str) -> None:
         """Scroll through content for about as long as a person would spend reading it."""
-        total = reading_seconds(text, self.cfg.reading_wpm)
+        total = reading_seconds(text, self.cfg.reading_wpm, cap=12.0 if self.brisk else 90.0)
         spent = 0.0
         while spent < total:
             chunk = random.uniform(2.0, 6.0)

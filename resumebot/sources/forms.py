@@ -55,6 +55,7 @@ SCAN_JS = r"""
     return '';
   };
   const isReq = el => {
+    if (/\(optional\)/i.test(labelFor(el)) || /\(optional\)/i.test(groupLabel(el))) return false;
     const entry = el.closest('.ashby-application-form-field-entry');
     const label = entry?.querySelector('label');
     return !!(el.required || el.getAttribute('aria-required') === 'true' ||
@@ -242,7 +243,9 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
         if role == "resume":
             await ctx.human.upload(loc, str(ctx.materials.resume_pdf))
             filled[label] = ctx.materials.resume_pdf.name
-        elif role == "cover" and ctx.materials.cover_letter_pdf:
+        elif role == "cover" and (ctx.materials.cover_letter_pdf or getattr(ctx.materials, "cover_factory", None)):
+            if not ctx.materials.cover_letter_pdf:
+                await ctx.materials.cover_factory()
             await ctx.human.upload(loc, str(ctx.materials.cover_letter_pdf))
             filled[label] = ctx.materials.cover_letter_pdf.name
         try:  # many sites swap the upload box for a filename chip after uploading
@@ -269,7 +272,9 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
                     if role == "resume":
                         await ctx.human.upload(loc, str(ctx.materials.resume_pdf))
                         filled[label] = ctx.materials.resume_pdf.name
-                    elif role == "cover" and ctx.materials.cover_letter_pdf:
+                    elif role == "cover" and (ctx.materials.cover_letter_pdf or getattr(ctx.materials, "cover_factory", None)):
+                        if not ctx.materials.cover_letter_pdf:
+                            await ctx.materials.cover_factory()
                         await ctx.human.upload(loc, str(ctx.materials.cover_letter_pdf))
                         filled[label] = ctx.materials.cover_letter_pdf.name
                     continue
@@ -280,11 +285,14 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
                     answer = await ctx.answer(Field(label, "radio", f["options"], f["required"]))
                     if not answer:
                         continue
-                    if answer not in f["options"]:
+                    # Checkbox groups can take several answers ("English, Urdu").
+                    picks = [p.strip() for p in answer.split(", ")] if kind == "checkgroup" else [answer]
+                    picks = [p for p in picks if p in f["options"]]
+                    if not picks:
                         raise NeedsHuman(label, answer, f["options"])
-                    idx = f["options"].index(answer)
-                    await ctx.human.click(await _clickable(ctx, _locator(ctx, f, idx)))
-                    filled[label] = answer
+                    for pick in picks:
+                        await ctx.human.click(await _clickable(ctx, _locator(ctx, f, f["options"].index(pick))))
+                    filled[label] = ", ".join(picks)
                     continue
 
                 loc = _locator(ctx, f)

@@ -236,7 +236,9 @@ def _trim_to_fit(result: "TailoredResume", job: Job, contact: dict, max_pages: i
 async def tailor_with_retry(job: Job, contact: dict) -> TailoredResume:
     cfg = settings().ats
     result = await tailor(job, contact)
-    for _ in range(2):
+    # One AI call by default: length is fixed deterministically (_trim_to_fit) and supported
+    # keywords are backfilled in _verify. Extra AI rewrites only if retailor_attempts > 0.
+    for _ in range(2 if cfg.retailor_attempts else 0):
         pages = _pages(result)
         if pages <= 2:
             break

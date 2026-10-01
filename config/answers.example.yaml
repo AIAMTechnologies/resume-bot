@@ -12,6 +12,9 @@ contact:
   province_state: "ON"
   country: "Canada"
   postal_code: ""
+  address: ""
+  address_line2: ""
+  languages: ["English"]
   linkedin: ""
   github: ""
   portfolio: ""

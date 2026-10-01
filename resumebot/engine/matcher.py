@@ -142,7 +142,21 @@ def candidate_logistics() -> str:
     return "CANDIDATE LOGISTICS:\n" + "\n".join(line for line in lines if not line.endswith(": "))
 
 
+SECOND_OPINION_FROM = 55  # fast-model score at/above which the main model re-scores
+
+
 async def score(job: Job) -> tuple[int, list[str], list[str]]:
+    """Two-stage: the cheap fast model screens everything; the accurate main model re-scores only
+    jobs the fast model rates 55+ (the fast model runs generous, so low scores stay low)."""
+    if env().score_with_fast_model:
+        return await _score(job, fast=True)
+    quick = await _score(job, fast=True)
+    if quick[0] < SECOND_OPINION_FROM:
+        return quick
+    return await _score(job, fast=False)
+
+
+async def _score(job: Job, fast: bool) -> tuple[int, list[str], list[str]]:
     result = await complete_json(f"""{candidate_logistics()}
 
 JOB: {job.title} at {job.company} — {job.location} {job.salary}
@@ -150,7 +164,7 @@ JOB: {job.title} at {job.company} — {job.location} {job.salary}
 
 Return {{"score": 0-100, "reasons": ["up to 4 short reasons"], "missing": ["must-have requirements the candidate lacks"],
  "hard_blocker": "empty or e.g. 'requires US citizenship / security clearance / 10+ yrs'"}}""",
-        system=SCORE_SYSTEM, max_tokens=800, context=master.prompt_context(), fast=env().score_with_fast_model)
+        system=SCORE_SYSTEM, max_tokens=800, context=master.prompt_context(), fast=fast)
     s = int(result.get("score", 0))
     reasons = list(result.get("reasons", []))
     if result.get("hard_blocker"):

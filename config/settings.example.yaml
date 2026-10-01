@@ -66,8 +66,8 @@ pacing:
       daily_cap: 25
       weekend_cap: 10
       active_hours: [7, 22]
-      min_gap_seconds: 45
-      max_gap_seconds: 180
+      min_gap_seconds: 20
+      max_gap_seconds: 60
       session_minutes: [45, 90]
       break_minutes: [10, 30]
       browse_only_ratio: 0.0
@@ -78,8 +78,8 @@ pacing:
       daily_cap: 25
       weekend_cap: 10
       active_hours: [7, 22]
-      min_gap_seconds: 45
-      max_gap_seconds: 180
+      min_gap_seconds: 20
+      max_gap_seconds: 60
       session_minutes: [45, 90]
       break_minutes: [10, 30]
       browse_only_ratio: 0.0
@@ -90,8 +90,8 @@ pacing:
       daily_cap: 25
       weekend_cap: 10
       active_hours: [7, 22]
-      min_gap_seconds: 45
-      max_gap_seconds: 180
+      min_gap_seconds: 20
+      max_gap_seconds: 60
       session_minutes: [45, 90]
       break_minutes: [10, 30]
       browse_only_ratio: 0.0

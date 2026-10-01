@@ -61,8 +61,8 @@ async def test_callers_pick_the_right_model(monkeypatch):
     await matcher.score(Job(source="x", external_id="1", company="c", title="t", url="u"))
     await questions.from_llm(Field("Years of Splunk experience?", "text"), "t", "c", "d")
     await questions.from_llm(Field("Why do you want to work here?", "textarea"), "t", "c", "d")
-    # Scoring uses the main model by default (it decides what gets submitted); short answers use fast.
-    assert [(fast, ctx) for _, fast, ctx in seen] == [(False, True), (True, True), (False, True)]
+    # Two-stage scoring: fast screen, then the main model for promising jobs (80 here); short answers use fast.
+    assert [(fast, ctx) for _, fast, ctx in seen] == [(True, True), (False, True), (True, True), (False, True)]
     from types import SimpleNamespace
     monkeypatch.setattr(matcher, "env", lambda: SimpleNamespace(score_with_fast_model=True))
     seen.clear()
@@ -81,3 +81,14 @@ async def test_scorer_is_told_work_authorization(monkeypatch):
     prompt, system = seen[0]
     assert "CANDIDATE LOGISTICS" in prompt and "Authorized to work in the US today" in prompt
     assert "export-control" in system and "relocate" in system
+
+
+
+async def test_low_fast_score_skips_the_expensive_second_pass(monkeypatch):
+    calls = []
+    async def fake(prompt, system="", max_tokens=4000, *, context="", fast=False):
+        calls.append(fast)
+        return {"score": 30, "reasons": ["poor fit"]}
+    monkeypatch.setattr(matcher, "complete_json", fake)
+    score, _, _ = await matcher.score(Job(source="x", external_id="1", company="c", title="t", url="u"))
+    assert score == 30 and calls == [True]  # one cheap call, no main-model call

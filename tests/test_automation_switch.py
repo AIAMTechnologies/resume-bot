@@ -22,7 +22,7 @@ def fake_loops(monkeypatch):
             started.append(name)
             await asyncio.Event().wait()
         return loop
-    for name in ("discovery_loop", "triage_loop", "inbox_loop", "daily_summary_loop", "source_loop"):
+    for name in ("discovery_loop", "triage_loop", "inbox_loop", "daily_summary_loop", "source_loop", "prefetch_loop"):
         monkeypatch.setattr(scheduler, name, idle(name))
     monkeypatch.setattr(telegram, "poll_forever", idle("telegram"))
     async def no_send(*a, **k):

@@ -39,6 +39,8 @@ class Materials:
     resume_docx: Path
     cover_letter: str = ""
     cover_letter_pdf: Path | None = None
+    # Async callable that writes the cover letter on demand (only if the form asks for one).
+    cover_factory: object = None
 
 
 @dataclass

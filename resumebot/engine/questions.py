@@ -58,7 +58,11 @@ RULES: list[tuple[str, str]] = [
     (r"phone|mobile", "contact.phone"),
     (r"linkedin", "contact.linkedin"),
     (r"github", "contact.github"),
-    (r"portfolio|personal (web)?site|website", "contact.portfolio"),
+    (r"portfolio|personal (web)?site|website", "__website"),
+    (r"address line 2|apartment|suite|unit number", "contact.address_line2"),
+    (r"address line 1|street address|^address$|mailing address|home address", "contact.address"),
+    (r"languages? .{0,20}(speak|fluent)|fluent.{0,20}languages?|what languages", "__languages"),
+    (r"(i )?(have read|agree|consent|acknowledge|understand).{0,120}(privacy|policy|guidelines|terms|notice|processing)", "__consent"),
     (r"postal|zip", "contact.postal_code"),
     (r"^city|current city|^(current )?location( city)?$|what city|city of residence|where do you (currently )?(live|reside)", "contact.city"),
     (r"where are you (currently )?(located|based)|^(current )?location of residence|where (are you|do you) (currently )?(located|based|live)", "__city_region"),
@@ -94,6 +98,13 @@ def _special(key: str, question: str, job_location: str) -> str:
     us = is_us_location(question) or is_us_location(job_location)
     if re.search(r"\bcanada\b", question, re.I):
         us = False
+    if key == "__website":  # no portfolio → GitHub is the next best public site
+        return _a("contact.portfolio") or _a("contact.github")
+    if key == "__languages":
+        langs = answers().get("contact", {}).get("languages") or ["English"]
+        return ", ".join(langs) if isinstance(langs, list) else str(langs)
+    if key == "__consent":  # same permission as consent checkboxes (answers.yaml: application_consent)
+        return "Yes" if answers().get("application_consent") else ""
     if key == "__city_region":
         return ", ".join(x for x in [_a("contact.city"), _a("contact.province_state")] if x)
     if key == "__full_name":
@@ -161,6 +172,9 @@ def from_rules(f: Field, job_location: str = "") -> str | None:
         if re.search(pattern, q):
             val = _special(key, f.label, job_location) if key.startswith("__") else _a(key)
             val = _clean_url(val)
+            if val and f.options and ", " in val:  # several answers (e.g. languages): match each to an option
+                parts = [closest_option(p, f.options) for p in val.split(", ")]
+                return ", ".join(p for p in parts if p) or None
             if val:
                 return closest_option(val, f.options or [])
             return None

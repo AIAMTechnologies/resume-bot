@@ -117,3 +117,24 @@ def test_hispanic_question_and_clean_linkedin(monkeypatch):
     assert from_rules(Field("LinkedIn Profile")) == "https://www.linkedin.com/in/ada/"
     assert from_rules(Field("Are you Hispanic/Latino?", "select", ["Yes", "No", "Decline To Self Identify"])) \
         == "Decline To Self Identify"
+
+
+
+def test_website_consent_and_languages(monkeypatch):
+    from resumebot import config
+    base = config.answers()
+    monkeypatch.setattr(questions, "answers", lambda: {**base, "application_consent": True,
+                        "contact": {**base["contact"], "portfolio": "", "languages": ["English", "Urdu"]}})
+    assert from_rules(Field("Website")) == "github.com/ada"
+    assert from_rules(Field("I have read and understand Tailscale's Candidate Privacy Policy and AI Guidelines",
+                            "radio", ["Yes"])) == "Yes"
+    assert from_rules(Field("Please select all the languages you speak fluently.")) == "English, Urdu"
+
+
+
+def test_multi_answers_map_to_each_option(monkeypatch):
+    from resumebot import config
+    base = config.answers()
+    monkeypatch.setattr(questions, "answers", lambda: {**base, "contact": {**base["contact"], "languages": ["English", "Urdu"]}})
+    opts = ["Arabic", "English", "French", "Urdu"]
+    assert from_rules(Field("Please select all the languages you speak fluently.", "radio", opts)) == "English, Urdu"

@@ -81,6 +81,31 @@ async def inbox_loop():
     await _guard("inbox", gmail.check_inbox, settings().inbox.poll_minutes * 60)
 
 
+async def prefetch_loop(ahead: int = 2):
+    """Tailor resumes for the next queued portal jobs while a form is being filled (runs in parallel)."""
+    from ..models import Job, JobStatus
+    from . import drafts
+
+    async def run():
+        if db.kv_get("global_pause") or pipeline.ai_waiting():
+            return "Waiting (paused or AI cooling down)"
+        with db.session() as s:
+            jobs = list(s.exec(db.select(Job).where(Job.status == JobStatus.QUEUED,
+                                                    Job.source.in_(list(pipeline.BRISK_SOURCES)))
+                               .order_by(Job.match_score.desc(), Job.discovered_at).limit(10)))
+        todo = [j for j in jobs if (drafts.get(j.id) or {}).get("status") not in ("ready", "preparing")][:ahead]
+        for job in todo:
+            runtime.update("prefetch", message=f"Tailoring ahead: #{job.id} {job.title} @ {job.company}", job_id=job.id)
+            try:
+                await drafts.prepare(job)
+            except Exception as error:  # noqa: BLE001
+                if pipeline.ai_unavailable(error):
+                    return "AI allowance exhausted"
+                db.log(f"Tailoring ahead failed for #{job.id}: {error}", level="warning", kind="tailor", job_id=job.id)
+        return f"{len(todo)} resume(s) prepared ahead" if todo else "Nothing to prepare"
+    await _guard("prefetch", run, 30)
+
+
 async def daily_summary_loop():
     async def run():
         from .pacing import local_now
@@ -109,6 +134,7 @@ def _automation_tasks() -> list[asyncio.Task]:
         asyncio.create_task(triage_loop(), name="triage"),
         asyncio.create_task(inbox_loop(), name="inbox"),
         asyncio.create_task(daily_summary_loop(), name="summary"),
+        asyncio.create_task(prefetch_loop(), name="prefetch"),
     ]
     for name, cfg in settings().pacing.sources.items():
         if cfg.enabled and cfg.mode != "manual":

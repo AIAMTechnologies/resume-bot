@@ -33,6 +33,8 @@ from .questions import Answerer
 
 # Sources where the bot prepares everything and you click submit (never automated in a browser).
 ASSIST_SOURCES = {"linkedin"}
+# Company application portals: no account to protect, so the bot moves at a brisk human pace.
+BRISK_SOURCES = {"greenhouse", "lever", "ashby"}
 
 
 # ---------------- discovery ----------------
@@ -113,6 +115,11 @@ async def screen_job(job: Job, progress: str = "") -> str:
     try:
         job.match_score, job.match_reasons, job.missing_skills = await matcher.score(job)
     except Exception as e:  # noqa: BLE001
+        if ai_unavailable(e):
+            until = utcnow() + timedelta(minutes=30)
+            db.kv_set("ai_wait_until", until.isoformat())
+            db.log(f"AI plans out of allowance — screening paused until {until:%H:%M} UTC", level="warning", kind="score")
+            raise AIUnavailable(str(e)) from e
         db.log(f"Scoring failed for #{job.id}: {e}", level="error", kind="score", job_id=job.id)
         return "error"
     if job.match_score >= cfg.auto_apply_score:
@@ -130,8 +137,14 @@ async def screen_job(job: Job, progress: str = "") -> str:
     return job.status
 
 
+class AIUnavailable(RuntimeError):
+    pass
+
+
 async def triage_new(limit: int = 25) -> str:
     from . import runtime
+    if ai_waiting():
+        return "Waiting for AI allowance to reset"
     async with _triage_lock:
         new_jobs = _new_jobs(limit)
         scored = 0
@@ -142,7 +155,10 @@ async def triage_new(limit: int = 25) -> str:
                 current = s.get(Job, job.id)
             if current is None or current.status != JobStatus.NEW:
                 continue  # screened meanwhile (e.g. "Score now")
-            await screen_job(current, f"{index}/{len(new_jobs)}: ")
+            try:
+                await screen_job(current, f"{index}/{len(new_jobs)}: ")
+            except AIUnavailable:
+                return f"Paused: AI allowance exhausted after {index - 1} job(s)"
             scored += current.match_score is not None
     return f"Screened {len(new_jobs)} job(s), {scored} scored by AI" if new_jobs else "No new jobs to screen"
 
@@ -206,13 +222,26 @@ async def prepare(job: Job) -> tuple[Materials, tailoring.TailoredResume]:
     tr = await tailoring.tailor_with_retry(job, contact)
     cover = ""
     cover_pdf = None
-    if settings().ats.include_cover_letter in ("always", "when_optional"):
+    if settings().ats.include_cover_letter == "always":
         cover = await tailoring.cover_letter(job, contact)
         cover_pdf = _cover_pdf(cover, contact, tr.pdf.parent)
     db.log(f"Tailored resume: ATS {tr.report.score}, keywords {tr.report.keyword_coverage:.0%}"
            + (f", dropped {len(tr.dropped)} unsupported claims" if tr.dropped else ""),
            source=job.source, kind="tailor", job_id=job.id)
     return Materials(tr.pdf, tr.docx, cover, cover_pdf), tr
+
+
+def _attach_lazy_cover(job: Job, materials: Materials) -> None:
+    """Write a cover letter only if the form has a cover-letter field (saves an AI call per job)."""
+    if materials.cover_letter_pdf or settings().ats.include_cover_letter == "only_when_required":
+        return
+
+    async def make() -> Path:
+        contact = answers().get("contact", {})
+        materials.cover_letter = await tailoring.cover_letter(job, contact)
+        materials.cover_letter_pdf = _cover_pdf(materials.cover_letter, contact, materials.resume_pdf.parent)
+        return materials.cover_letter_pdf
+    materials.cover_factory = make
 
 
 def _cover_pdf(text: str, contact: dict, folder: Path) -> Path:
@@ -318,6 +347,7 @@ async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None 
     db.save(job)
     try:
         materials, tr = drafts.load(job.id, draft_version) if draft_version else await drafts.prepare(job)
+        _attach_lazy_cover(job, materials)
     except Exception as e:  # noqa: BLE001
         if not dry_run and ai_unavailable(e):
             # Out of AI quota isn't the job's fault: keep it queued and pause applying for a while.
@@ -368,12 +398,13 @@ async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None 
     answerer = Answerer(job.title, job.company, job.description, job.location)
     try:
         async with browsers.page(job.source) as page:
-            human = Human(page)
+            human = Human(page, brisk=job.source in BRISK_SOURCES)
             ctx = ApplyContext(job=job, page=page, human=human, materials=materials, answer=answerer, dry_run=dry_run)
             try:
                 result = await src.apply(ctx)
             finally:
                 app.screenshot = await _screenshot(ctx.page, job, full_page=dry_run)
+        app.cover_letter = materials.cover_letter or app.cover_letter
         app.answers = {**answerer.log, **{k: {"answer": v} for k, v in result.extra.get("answers", {}).items()
                                           if k not in answerer.log}}
         app.duration_seconds = round(time.monotonic() - started, 1)
