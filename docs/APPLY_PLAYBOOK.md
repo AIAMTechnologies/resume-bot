@@ -53,6 +53,13 @@ Biggest time sinks, in order: AI tailoring (~1–3 min) > unknown questions goin
   Phone Number"). `_restore_wiped` re-scans before submit and types cleared required answers back.
 - **"Page not found" on a job that is still in the feed** = the company turned off its hosted Ashby pages (Cursor
   applies on cursor.com). Becomes a manual card, not a failure.
+- **Education block** (School search + Degree + Field of Study + Start/End month-year menus, all inside one field
+  entry): school options span three lines (name / country / website) → clicked by position; each box has its own
+  selector (`>> nth=k`); labels are prefixed "Education". Study dates come from `education.start_date` /
+  `end_date` in answers.yaml ("2014-09") and stay blank if those are blank — before, "Start Date" was answered with
+  the job-availability answer and each menu cost a 30 s timeout.
+- **"Select all that apply" with separately named checkboxes** (Plaid "Why are you interested…") arrives as one
+  Yes/No question per option; each new option parks the job once.
 
 ### All portals
 - **Human checks are handed to you, never solved:** Greenhouse's emailed code *and* a CAPTCHA puzzle that pops up
@@ -146,3 +153,7 @@ unknown state" and the screenshot shows the Security code boxes.
   was already submitted (screenshot). Fixed: Ashby success banner, CAPTCHA hand-off, closed postings, wiped phone
   number, id-less radios, consent groups, Affirm/Kraken question wording. To restart without killing forms: turn on
   global pause, wait until no job is `applying`, then kill by PID and start again (startup clears the pause).
+- 2026-10-01 18:15–18:35: Ammar away until ~1 am → Greenhouse paused (source pause), 8 Greenhouse jobs queued for his
+  codes. No-code lanes: +ElevenLabs, OpenAI (Manager, Applied AI Architect), Kraken, Plaid → 26 today. Fixed the Ashby
+  education block and made the Cohere exclusion real. Ashby/Lever queue is now empty: everything discovered is
+  screened; 2,910 Ashby + 360 Lever postings were skipped as older than `max_job_age_days` (21).
