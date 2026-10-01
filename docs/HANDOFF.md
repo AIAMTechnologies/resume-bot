@@ -12,6 +12,15 @@ Paste the prompt at the bottom into a new Claude Code chat opened in `/Users/amm
 - Commit as you go; **don't push to GitHub** without asking. End commits with the Co-Authored-By line.
 - Don't build anything that reads/enters Greenhouse's emailed security code — that's bot detection. Ammar enters it.
 
+## Incident 2026-10-01 18:46 — database corrupted by a second session (fixed)
+A Cowork/VM session started at 18:44, opened `data/resumebot.db` through the VM mount, bulk-approved the 4 Ashby
+review jobs with direct SQL, and corrupted the live database (bot stopped with "database disk image is malformed").
+Repaired with `sqlite3 .recover`; two scrambled job rows (#12545 Writer, #14466 Reflection AI) restored from
+`data/backups/resumebot.db.backup_20261001_pre_queue_release`; nothing was lost (14,468 jobs, 64 applications).
+Damaged files are kept in `data/backups/corrupt-20261001-1847/`. The 4 released jobs were left queued, as that
+session intended. `CLAUDE.md` now forbids touching the database from a VM mount. If `.fuse_hidden*` files show up in
+the repo or `data/` again, another VM session has the database open — stop and tell Ammar.
+
 ## Current state
 - Bot is running **detached** (`nohup .venv/bin/resumebot run`, parent PID 1, log `data/logs/bot.log`).
   Dashboard: http://127.0.0.1:8765. Automation ON, global pause OFF.
