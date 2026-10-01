@@ -20,7 +20,7 @@ targets:
   min_salary_cad: null
 
 matching:
-  auto_apply_score: 75     # >= this: apply automatically
+  auto_apply_score: 70     # >= this: apply automatically
   review_score: 60         # between review_score and auto_apply_score: review queue
   max_job_age_days: 21
   max_apps_per_company_90d: 2   # applications (incl. prepared LinkedIn cards) per company per 90 days

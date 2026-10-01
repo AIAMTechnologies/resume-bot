@@ -53,7 +53,13 @@ class _BoardSource(Source):
         return out
 
     async def _open_and_read(self, ctx: ApplyContext, url: str) -> None:
-        await ctx.page.goto(url, wait_until="domcontentloaded")
+        try:
+            await ctx.page.goto(url, wait_until="domcontentloaded")
+        except Exception as e:  # noqa: BLE001 — slow page load: one patient retry
+            if "Timeout" not in type(e).__name__:
+                raise
+            await ctx.human.pause(5, 10)
+            await ctx.page.goto(url, wait_until="domcontentloaded", timeout=60_000)
         await ctx.human.pause(1.5, 3.5)
         await guards.check_page(ctx.page)
         await ctx.human.read(ctx.job.description)

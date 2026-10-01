@@ -4,7 +4,9 @@ from __future__ import annotations
 import asyncio
 
 import random
+import re
 import time
+from datetime import timedelta
 from pathlib import Path
 
 from sqlalchemy import case
@@ -317,6 +319,16 @@ async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None 
     try:
         materials, tr = drafts.load(job.id, draft_version) if draft_version else await drafts.prepare(job)
     except Exception as e:  # noqa: BLE001
+        if not dry_run and ai_unavailable(e):
+            # Out of AI quota isn't the job's fault: keep it queued and pause applying for a while.
+            job.status, job.status_reason = prior_status if prior_status != JobStatus.APPLYING else JobStatus.QUEUED, \
+                "waiting for AI quota to reset"
+            until = utcnow() + timedelta(minutes=30)
+            db.kv_set("ai_wait_until", until.isoformat())
+            db.save(job)
+            db.log(f"AI quota unavailable — pausing applications until {until:%H:%M} UTC ({e})"[:300],
+                   level="warning", source=job.source, kind="tailor", job_id=job.id)
+            return None
         job.status, job.status_reason = (prior_status, prior_reason) if dry_run else (
             JobStatus.FAILED, f"tailoring failed: {e}"[:300])
         db.save(job)
@@ -433,8 +445,24 @@ async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None 
     return app
 
 
+AI_LIMIT_RE = re.compile(r"allowance|usage limit|session limit|rate.?limit|quota|overloaded|\b429\b|hit your .*limit|"
+                         r"credit balance|not logged in", re.I)
+
+
+def ai_unavailable(error: BaseException) -> bool:
+    return AI_LIMIT_RE.search(str(error)) is not None
+
+
+def ai_waiting() -> bool:
+    from datetime import datetime
+    until = db.kv_get("ai_wait_until")
+    return bool(until) and datetime.fromisoformat(until) > utcnow()
+
+
 async def tick_source(source_name: str) -> str:
     """One scheduler step for a source. Returns what it did (for logs/tests)."""
+    if ai_waiting():
+        return "wait: AI quota cooldown"
     gate = Gate(source_name)
     gate.clear_expired()
     decision = gate.check()

@@ -112,3 +112,21 @@ async def test_jobs_page_offers_score_buttons():
     async with client:
         page = (await client.get("/jobs?status=new")).text
     assert f"/jobs/{job.id}/score" in page and "Screen waiting jobs now" in page
+
+
+
+def test_ai_quota_errors_keep_job_queued():
+    from resumebot.llm import LLMError
+    assert pipeline.ai_unavailable(LLMError("Codex plan allowance is unavailable or nearly exhausted; waiting for reset."))
+    assert pipeline.ai_unavailable(RuntimeError("You've hit your session limit · resets 1:30am"))
+    assert not pipeline.ai_unavailable(ValueError("PDF render failed"))
+
+
+async def test_tick_waits_during_ai_cooldown():
+    from datetime import timedelta
+    from resumebot.models import utcnow
+    db.kv_set("ai_wait_until", (utcnow() + timedelta(minutes=5)).isoformat())
+    try:
+        assert "AI quota" in await pipeline.tick_source("greenhouse")
+    finally:
+        db.kv_set("ai_wait_until", None)
