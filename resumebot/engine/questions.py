@@ -59,14 +59,14 @@ RULES: list[tuple[str, str]] = [
     (r"linkedin", "contact.linkedin"),
     (r"github", "contact.github"),
     (r"portfolio|personal (web)?site|website", "__website"),
-    (r"(receive|subscribe|sign up for|opt.?in).{0,40}(marketing|newsletter|promotional|updates about careers)|marketing communications", "__no_marketing"),
+    (r"(receive|subscribe|sign up for|opt.?in).{0,40}(marketing|newsletter|promotional|updates about careers)|marketing communications|(receive|consent to).{0,40}(text messages?|sms)", "__no_marketing"),
     (r"address line 2|apartment|suite|unit number", "__address_line2"),
     (r"address line 1|street address|^address$|mailing address|home address", "contact.address"),
     (r"languages? .{0,20}(speak|fluent)|fluent.{0,20}languages?|what languages", "__languages"),
     (r"(i )?(have read|agree|consent|acknowledge|understand).{0,120}(privacy|policy|guidelines|terms|notice|processing)", "__consent"),
     (r"postal|zip", "contact.postal_code"),
     (r"^city|current city|^(current )?location( city)?$|what city|city of residence|where do you (currently )?(live|reside)", "contact.city"),
-    (r"where are you (currently )?(located|based)|^(current )?location of residence|where (are you|do you) (currently )?(located|based|live)", "__city_region"),
+    (r"where are you (currently )?(located|based)|^(current )?location of residence|where (are you|do you) (currently )?(located|based|live)|^current (city|location)|where (do|will) you plan (on|to) (work|working) from", "__city_region"),
     (r"province|\bstate\b", "contact.province_state"),
     (r"^country", "contact.country"),
     (r"sponsor", "__sponsorship"),
@@ -123,6 +123,95 @@ def _special(key: str, question: str, job_location: str) -> str:
     return _a(key)
 
 
+
+# Personal screening questions (answers.yaml → screening). Matched on the normalized label; first match
+# wins. A blank answer stops and asks you — these facts are never guessed by the AI.
+SCREENING_RULES: list[tuple[str, str]] = [
+    (r"arbitration", "agree_to_arbitration"),
+    (r"background (check|screening)s? .{0,80}third.party|third.party .{0,80}background|strider", "third_party_background_screening"),
+    (r"close relative of a government official|relative of a (government|public) official", "relative_of_government_official"),
+    (r"(current|former) (government|public) official|government official in the last", "government_official"),
+    (r"referred .{0,60}senior leader|senior leader .{0,80}referred", "referred_by_client_leader"),
+    (r"conflict of interest|financial interest in", "conflict_of_interest"),
+    (r"(family|relatives?|related to|personal relationships?|domestic partner).{0,80}(work|employed|at )", "relatives_at_company"),
+    (r"criminal (record|conviction|offen)|convicted|pending (criminal )?charges", "criminal_convictions"),
+    (r"non.?compete|non.?solicit|post.?employment restrictions?|restrictive covenant", "non_compete"),
+    (r"outside business|side business|board roles?|advisory .{0,20}roles?", "outside_business"),
+    (r"\bfinra\b|series (7|24|27|63|65|66)", "finra_licenses"),
+    (r"(interviewed|applied) (with|at|for) .{0,40}(before|previously)|ever interviewed", "interviewed_here_before"),
+    (r"(previously|ever|currently).{0,30}(worked|employed|consult(ed|ant)|contractor).{0,40}(at|by|for|with)\b|"
+     r"been employed by|worked for .{0,40} before", "previously_employed_here"),
+    (r"(member|contributor) .{0,30}(our )?communit", "community_contributor"),
+    (r"\bai policy\b|policy on (the )?use of ai|use of ai .{0,40}application", "ai_policy_agreement"),
+    (r"(monday|mon) .{0,20}(friday|fri) .{0,40}\d|on.?call rotation|weekend shifts?", "fixed_shift_and_on_call"),
+    (r"sexual orientation", "sexual_orientation"),
+    (r"name pronunciation|pronounce your name", "name_pronunciation"),
+    (r"^school( name)?$|^(university|college|institution)( name)?$|school you attended", "__school"),
+    (r"^discipline$|field of study|^major$|area of study", "__discipline"),
+]
+AGREEMENT_KEYS = {"agree_to_arbitration", "third_party_background_screening", "ai_policy_agreement"}
+NONE_OPTION_RE = re.compile(r"^(n/?a|none|not applicable)\b|^no\b|do not hold|don.t hold", re.I)
+
+
+def _employers() -> list[str]:
+    from ..models import ProfileItem
+    with db.session() as s:
+        rows = s.exec(select(ProfileItem.organization).where(ProfileItem.kind == "experience")).all()
+    names = set()
+    for org in rows:
+        for part in re.split(r"[(/]|\bvia\b", org or ""):
+            if norm_q(part):
+                names.add(norm_q(part))
+    return sorted(names)
+
+
+def screening_answer(f: "Field", company: str) -> tuple[bool, str]:
+    """(matched, answer). matched with "" answer → you must answer it (it's a fact about you)."""
+    q = norm_q(f.label)
+    for pattern, key in SCREENING_RULES:
+        if not re.search(pattern, q):
+            continue
+        if key == "__school":
+            val = _a("education.school")
+        elif key == "__discipline":
+            val = _a("education.discipline")
+        else:
+            val = _a(f"screening.{key}").strip()
+        if key == "previously_employed_here" and val.lower() == "auto":
+            targets = [norm_q(company)] + [n for n in _employers() if f" {n} " in f" {q} "]
+            val = "Yes" if any(t and t in _employers() for t in targets) else "No"
+        if not val:
+            return True, ""
+        options = f.options or []
+        if key in AGREEMENT_KEYS and val.lower().startswith("n"):
+            return True, ""  # declined: the caller turns this job into a manual card
+        if key in AGREEMENT_KEYS and options:
+            if val.lower().startswith("y"):
+                agree = [o for o in options if re.search(r"\b(agree|acknowledge|consent|yes|accept)", o, re.I)
+                         and not re.search(r"\b(do not|don.t|disagree|decline)\b", o, re.I)]
+                return True, (agree[0] if agree else closest_option(val, options) or "")
+        if options and val.lower() in ("no", "none", "n/a"):
+            pick = closest_option(val, options)
+            if not pick:
+                pick = next((o for o in options if NONE_OPTION_RE.search(o.strip())), None)
+            return True, pick or ""
+        return True, (closest_option(val, options) if options else val) or ""
+    return False, ""
+
+
+def key_is_legal(label: str) -> bool:
+    q = norm_q(label)
+    return any(re.search(p, q) for p, k in SCREENING_RULES if k in AGREEMENT_KEYS)
+
+
+def _declined_agreement(label: str) -> bool:
+    q = norm_q(label)
+    for p, k in SCREENING_RULES:
+        if k in AGREEMENT_KEYS and re.search(p, q):
+            return _a(f"screening.{k}").strip().lower().startswith("n")
+    return False
+
+
 def closest_option(answer: str, options: list[str]) -> str | None:
     if not options:
         return answer
@@ -133,6 +222,10 @@ def closest_option(answer: str, options: list[str]) -> str | None:
     for o in options:
         if answer.lower().startswith(("yes", "no")) and o.lower().startswith(answer.lower()[:2]):
             return o
+    synonyms = {"male": ["man", "cisgender man"], "female": ["woman", "cisgender woman"]}
+    for alt in synonyms.get(answer.lower().strip(), []):
+        if alt in low:
+            return low[alt]
     if "decline" in answer.lower():
         for o in options:
             if re.search(r"decline|prefer not|don.t wish|not to (say|answer|disclose)", o, re.I):
@@ -241,7 +334,7 @@ Return {{"answer": "...", "grounded": true|false, "confidence": 0.0-1.0, "reason
     return str(result.get("answer", "")), bool(result.get("grounded")), float(result.get("confidence", 0))
 
 
-HEARD_RE = re.compile(r"how did you (hear|find|learn)|where did you (hear|find|learn)|source of (your )?application|referral source", re.I)
+HEARD_RE = re.compile(r"how did you (hear|find|learn|come across)|where did you (hear|find|learn|see)|what (brought|led) you to|source of (your )?application|referral source", re.I)
 # What to look for in the options, by where the bot actually found the job (truthful answer first).
 HEARD_PREFERENCES = {
     "linkedin": [r"linkedin.*(job|post)", r"linkedin"],
@@ -285,11 +378,26 @@ class Answerer:
             self.log[f.label] = {"answer": "", "origin": "left blank (optional)"}
             return ""
         # Your own custom/approved answers beat the generic rules.
-        for origin, fn in (("memory", lambda: from_memory(f)), ("config", lambda: from_rules(f, self.location))):
-            val = fn()
+        val = from_memory(f)
+        if val:
+            self.log[f.label] = {"answer": val, "origin": "memory"}
+            return val
+        matched, val = screening_answer(f, self.company)
+        if matched:
             if val:
-                self.log[f.label] = {"answer": val, "origin": origin}
+                self.log[f.label] = {"answer": val, "origin": "answers.yaml screening"}
                 return val
+            if key_is_legal(f.label) and _declined_agreement(f.label):
+                from ..sources.base import ManualRequired
+                raise ManualRequired(f"you chose not to auto-agree: {f.label[:80]}")
+            if not f.required:
+                self.log[f.label] = {"answer": "", "origin": "skipped optional (screening blank)"}
+                return ""
+            raise NeedsHuman(f.label, "", f.options)  # a fact about you: never guessed
+        val = from_rules(f, self.location)
+        if val:
+            self.log[f.label] = {"answer": val, "origin": "config"}
+            return val
         answer, grounded, conf = await from_llm(f, self.job_title, self.company, self.description)
         if f.options:
             answer = closest_option(answer, f.options) or ""

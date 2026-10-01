@@ -190,7 +190,9 @@ def company_recent_count(company: str, days: int = 90) -> int:
         apps = s.exec(select(Application.company).where(Application.submitted_at >= since)).all()
         cards = s.exec(select(Job.company).join(ReviewItem, ReviewItem.job_id == Job.id).where(
             ReviewItem.kind == "manual", ReviewItem.created_at >= since, ReviewItem.status == "pending")).all()
-    return sum(1 for c in [*apps, *cards] if matcher.norm(c) == key)
+        # Applications being filled right now (parallel tabs) count too.
+        live = s.exec(select(Job.company).where(Job.status == JobStatus.APPLYING)).all()
+    return sum(1 for c in [*apps, *cards, *live] if matcher.norm(c) == key)
 
 
 def next_job(source_name: str) -> Job | None:

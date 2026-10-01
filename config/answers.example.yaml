@@ -56,3 +56,58 @@ custom:
   "How did you hear about us?": "Job board"
   "Are you over 18?": "Yes"
   "Do you have a valid driver's license?": ""
+
+# ---------------------------------------------------------------------------------------------
+# SCREENING QUESTIONS — the personal questions that were stopping applications .
+# Each line answers that question on EVERY company's form, however it's worded.
+# Leave a line "" and the bot stops and asks you (it never guesses these). Use "Yes" / "No"
+# unless the comment says otherwise. ← = what it asked, and which company was stuck on it.
+# ---------------------------------------------------------------------------------------------
+screening:
+  # "Have you previously worked at / been employed by / consulted for <company>?"  (GitLab ×3, Coinbase,
+  # Plaid, Figma, SoFi; SoFi also asks about Deloitte). "auto" = No unless the company is one of your
+  # employers in the master profile .
+  previously_employed_here: "auto"
+  # "Have you interviewed at <company> before?"  (Anthropic)
+  interviewed_here_before: ""
+  # "Do you have relatives / close personal relationships working at <company>?"  (1Password, Okta)
+  relatives_at_company: ""
+  # "Are you a current or former (last 5 years) government official?"  (Coinbase ×2)
+  government_official: ""
+  # "Are you a close relative of a government official?"  (Coinbase ×3)
+  relative_of_government_official: ""
+  # "Do you or a close relative have a role/financial interest/close relationship with a senior leader
+  #  at a company connected to <company> (conflict of interest)?"  (Coinbase ×2)
+  conflict_of_interest: ""
+  # "Were you referred by a senior leader at a client/partner/vendor of <company>?"  (Coinbase ×2)
+  referred_by_client_leader: ""
+  # "Any past or pending criminal convictions?"  (Lightspeed)
+  criminal_convictions: ""
+  # "Are you subject to a non-compete / non-solicit / post-employment restriction?"  (Chime, GitLab)
+  non_compete: ""
+  # "Do you have outside business activities (advisory, consulting, board, side business)?"  (Okta)
+  outside_business: ""
+  # "Do you hold / plan to hold FINRA licenses (Series 7…)?"  (SoFi ×2) — "No" picks "N/A" where offered
+  finra_licenses: ""
+  # "Are you an active member/contributor of our communities (Wikipedia etc.)?"  (Wikimedia)
+  community_contributor: ""
+  # "Do you agree to the company's AI policy for applications?"  (Anthropic) — read their policy first
+  ai_policy_agreement: ""
+  # Fixed shifts + on-call (e.g. "Mon–Fri 10am–6pm MT and monthly on-call")  (Zscaler)
+  fixed_shift_and_on_call: ""
+  # "I identify my sexual orientation as…"  (Chime) — EEO, voluntary
+  sexual_orientation: "Decline to answer"
+  # "Name pronunciation" (optional free text)  (Affirm) — e.g. "AM-mar AH-lum", or leave blank
+  name_pronunciation: ""
+
+  # LEGAL — these sign something on your behalf. "Yes" = agree on every form; "No" = skip those jobs.
+  # "Agree to be bound by the Candidate/Applicant Arbitration Agreement"  (OpenAI ×17, Roblox ×2)
+  agree_to_arbitration: ""
+  # "Consent to a third party (e.g. Strider Technologies) running background/risk screening"  (Gemini)
+  third_party_background_screening: ""
+
+education:
+  school: ""        # ← "School" dropdowns (Netskope, Klaviyo)
+  degree: ""
+  discipline: ""
+  graduation_year: ""                  # ← some forms ask; add it if you want it filled

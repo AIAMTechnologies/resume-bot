@@ -13,7 +13,7 @@ targets:
     preferred_regions: []  # Optional state/city labels to screen first among similar roles.
   employment_types: ["full_time", "contract"]
   # Titles containing any of these are always scored by the AI (it judges fit better than titles do).
-  title_keywords: [security, cyber, soc, incident, threat, iam, identity, grc, siem, dfir, infosec, detection, vulnerability, risk, automation, csirt, cirt, forensic, forensics, malware, penetration, pentest, red team, blue team, appsec, devsecops, privacy, compliance, governance, trust]
+  title_keywords: [security, cyber, soc, incident, threat, iam, identity, grc, siem, dfir, infosec, detection, vulnerability, risk, automation, csirt, cirt, forensic, forensics, malware, penetration, pentest, red team, blue team, appsec, devsecops, privacy, compliance, governance, trust, machine learning, ml, mlops, llm, applied ai, ai engineer, ai/ml, forward deployed, genai, generative ai]
   exclude_title_keywords: ["intern", "principal", "director", "vp "]
   exclude_companies: []
   min_salary_cad: null
@@ -67,10 +67,12 @@ pacing:
       daily_cap: 25
       weekend_cap: 10
       active_hours: [7, 22]
-      min_gap_seconds: 20
-      max_gap_seconds: 60
+      # Slower than other portals: fast back-to-back applies trigger Greenhouse's
+      # "enter the code we emailed you to confirm you're a human" check.
+      min_gap_seconds: 180
+      max_gap_seconds: 420
       session_minutes: [45, 90]
-      break_minutes: [2, 5]
+      break_minutes: [5, 12]
       browse_only_ratio: 0.0
       challenge_cooldown_hours: 6
       discover_every_hours: 4

@@ -16,6 +16,11 @@ from .pacing import Gate
 BROWSER_SOURCES = {"linkedin", "indeed"}
 
 
+PORTAL_LANES = 3
+# Greenhouse emails a human-check code when applications come in fast, so it runs one at a time.
+SINGLE_LANE_SOURCES = {"greenhouse"}
+
+
 async def _guard(name: str, coro_fn, interval: float):
     """Run coro_fn forever with a pause between runs; never let one crash kill the bot."""
     while True:
@@ -81,7 +86,7 @@ async def inbox_loop():
     await _guard("inbox", gmail.check_inbox, settings().inbox.poll_minutes * 60)
 
 
-async def prefetch_loop(ahead: int = 2):
+async def prefetch_loop(ahead: int = 4):
     """Tailor resumes for the next queued portal jobs while a form is being filled (runs in parallel)."""
     from ..models import Job, JobStatus
     from . import drafts
@@ -138,7 +143,11 @@ def _automation_tasks() -> list[asyncio.Task]:
     ]
     for name, cfg in settings().pacing.sources.items():
         if cfg.enabled and cfg.mode != "manual":
-            tasks.append(asyncio.create_task(source_loop(name), name=f"apply:{name}"))
+            # Company portals: several applications at once, each in its own tab (different jobs;
+            # a job is claimed in SQLite before any await, so two lanes never take the same one).
+            lanes = PORTAL_LANES if name in pipeline.BRISK_SOURCES - SINGLE_LANE_SOURCES else 1
+            for lane in range(lanes):
+                tasks.append(asyncio.create_task(source_loop(name), name=f"apply:{name}" + (f":{lane + 1}" if lane else "")))
     return tasks
 
 

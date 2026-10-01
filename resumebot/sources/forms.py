@@ -16,7 +16,7 @@ from playwright.async_api import TimeoutError as PlaywrightTimeout
 from .. import db
 from ..config import answers
 from ..engine.questions import Field, NeedsHuman, from_memory
-from .base import ApplyContext, NeedsInput
+from .base import ApplyContext, ManualRequired, NeedsInput
 
 if TYPE_CHECKING:
     from playwright.async_api import Locator
@@ -60,7 +60,9 @@ SCAN_JS = r"""
     const label = entry?.querySelector('label');
     return !!(el.required || el.getAttribute('aria-required') === 'true' ||
       /\*\s*$/.test(labelFor(el)) || /\*\s*$/.test(groupLabel(el)) ||
-      el.closest('[class*=required i]') || label?.matches('[class*=required i]'));
+      el.closest('[class*=required i]') || label?.matches('[class*=required i]') ||
+      // Ashby checkbox groups: the asterisk class sits on the question title, a sibling of the option.
+      el.closest('fieldset')?.querySelector(':scope > label[class*=required i], :scope > legend[class*=required i]'));
   };
   const isPlaceholder = o => !o || !o.value || /^(select|choose|--|please)/i.test(o.text.trim());
   const out = []; const groups = {}; let n = start;
@@ -137,6 +139,8 @@ SCAN_JS = r"""
 """
 
 CONSENT_RE = re.compile(r"(i )?(agree|consent|acknowledge|certify|confirm).{0,80}(privacy|terms|policy|accurate|true|processing|data)", re.I)
+# Signing away legal rights is never implied by "application consent": you decide each one.
+LEGAL_WAIVER_RE = re.compile(r"arbitration|class.action|jury trial|waive|non-?compete|bound by the terms", re.I)
 SKIP_CHECKBOX_RE = re.compile(r"follow|newsletter|marketing|job alerts?|subscribe|updates", re.I)
 
 
@@ -301,6 +305,20 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
                     if SKIP_CHECKBOX_RE.search(label):
                         if checked:
                             await ctx.human.click(await _clickable(ctx, loc))  # un-follow / un-subscribe
+                        continue
+                    if LEGAL_WAIVER_RE.search(label):
+                        agree = _consent_answer(label)
+                        if agree is None:
+                            from ..engine.questions import _declined_agreement, screening_answer
+                            if _declined_agreement(label):
+                                raise ManualRequired(f"you chose not to auto-agree: {label[:80]}")
+                            matched, val = screening_answer(Field(label, "checkbox", ["Yes", "No"]), ctx.job.company)
+                            agree = True if matched and val.lower().startswith("y") else None
+                        if agree is None:
+                            raise NeedsHuman(label, "check", ["check", "leave unchecked"])
+                        if agree and not checked:
+                            await ctx.human.click(await _clickable(ctx, loc))
+                        filled[label] = "checked" if agree else "unchecked"
                         continue
                     if CONSENT_RE.search(label):
                         agree = consent_ok or _consent_answer(label)

@@ -57,11 +57,16 @@ def import_chrome_profile(profile: str) -> Path:
     return dest
 
 
+# No account to protect on these, so applications may run side by side in separate tabs.
+OWN_TAB_SOURCES = {"greenhouse", "lever", "ashby"}
+
+
 class BrowserManager:
     """Keeps one persistent Chrome context open; `lock` serialises all browser work."""
 
     def __init__(self):
         self.lock = asyncio.Lock()
+        self._launching = asyncio.Lock()  # parallel tabs must not launch Chrome twice
         self._pw: Playwright | None = None
         self._ctx: BrowserContext | None = None
 
@@ -89,17 +94,37 @@ class BrowserManager:
         self._ctx = None
 
     async def context(self) -> BrowserContext:
-        if self._ctx is None:
-            self._ctx = await self._launch()
-        return self._ctx
+        async with self._launching:
+            if self._ctx is None:
+                self._ctx = await self._launch()
+            return self._ctx
 
     @asynccontextmanager
     async def page(self, source: str = "") -> AsyncIterator[Page]:
-        """Exclusive use of the browser. Reuses the first tab like a person would."""
+        """Exclusive use of the browser, reusing the first tab like a person would.
+        Company application portals get a tab of their own instead, so several can run at once."""
+        if source in OWN_TAB_SOURCES:
+            async with self.tab() as page:
+                yield page
+            return
         async with self.lock:
             ctx = await self.context()
             page = ctx.pages[0] if ctx.pages else await ctx.new_page()
             yield page
+
+    @asynccontextmanager
+    async def tab(self) -> AsyncIterator[Page]:
+        """A tab of its own, for company application portals (no account to protect), so several
+        applications can be filled at once. Never used for LinkedIn or other sign-in sources."""
+        ctx = await self.context()
+        page = await ctx.new_page()
+        try:
+            yield page
+        finally:
+            try:
+                await page.close()
+            except Exception:  # noqa: BLE001 — browser may already be gone
+                pass
 
     async def close(self) -> None:
         if self._ctx is not None:

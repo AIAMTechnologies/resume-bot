@@ -15,7 +15,7 @@ from .. import db
 from ..config import CONFIG_DIR, DATA_DIR, env, settings
 from ..engine import actions, drafts, outcomes, pipeline, review, screening, stats
 from ..engine.pacing import Gate, to_local
-from ..models import Application, Job, JobStatus, ProfileItem
+from ..models import Application, Job, JobStatus, ProfileItem, ReviewItem
 from ..profile import ingest, master
 from ..sources import SOURCES
 
@@ -166,7 +166,15 @@ async def emails_backfill(request: Request, days: int = Form(30)):
 
 @app.get("/jobs", response_class=HTMLResponse)
 async def jobs(request: Request, status: str = "", source: str = ""):
-    return page(request, "jobs.html", jobs=stats.jobs(status, source, 400), f={"status": status, "source": source},
+    rows = stats.jobs(status, source, 400)
+    # Questions holding a job, so you can answer them right from its row.
+    questions: dict[int, list[ReviewItem]] = {}
+    with db.session() as s:
+        for item in s.exec(db.select(ReviewItem).where(ReviewItem.kind == "question", ReviewItem.status == "pending",
+                                                       ReviewItem.job_id.in_([j.id for j in rows]))
+                           .order_by(ReviewItem.created_at)):
+            questions.setdefault(item.job_id, []).append(item)
+    return page(request, "jobs.html", jobs=rows, f={"status": status, "source": source}, questions=questions,
                 screening=screening.status(),
                 statuses=[v for k, v in vars(JobStatus).items() if not k.startswith("_")])
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 from datetime import datetime, timezone
 
 import httpx
@@ -32,6 +33,20 @@ def _ts(value) -> datetime | None:
     except ValueError:
         return None
 
+
+
+COOKIE_DECLINE_RE = re.compile(r"^(necessary only|only necessary|reject( all)?|decline( all)?|deny|essential only|use necessary cookies only)$", re.I)
+
+
+async def dismiss_cookies(ctx: ApplyContext) -> None:
+    """Close a cookie banner the privacy-preserving way (necessary cookies only), if one is showing."""
+    try:
+        for button in await ctx.page.get_by_role("button").all():
+            if await button.is_visible() and COOKIE_DECLINE_RE.match((await button.inner_text()).strip()):
+                await ctx.human.click(button)
+                return
+    except Exception:  # noqa: BLE001 — a banner is never worth failing an application over
+        pass
 
 class _BoardSource(Source):
     async def _fetch_board(self, client: httpx.AsyncClient, slug: str) -> list[JobData]:
@@ -61,6 +76,7 @@ class _BoardSource(Source):
             await ctx.human.pause(5, 10)
             await ctx.page.goto(url, wait_until="domcontentloaded", timeout=60_000)
         await ctx.human.pause(1.5, 3.5)
+        await dismiss_cookies(ctx)
         await guards.check_page(ctx.page)
         await ctx.human.read(ctx.job.description)
 
@@ -104,7 +120,7 @@ class Greenhouse(_BoardSource):
         form = "#application-form, #application_form, form"
         answers = await fill_form(ctx, form)
         res = await self._submit_and_confirm(ctx, ["submit application", "^submit$", "apply"],
-                                             r"thank you for applying|application (has been )?(received|submitted)")
+                                             r"thanks? (you |so much )?for (applying|your application|your interest)|application (has )?(successfully )?(been )?(received|submitted)|we.ve received your application")
         res.extra["answers"] = answers
         return res
 
@@ -171,12 +187,16 @@ class Ashby(_BoardSource):
 
     async def apply(self, ctx: ApplyContext) -> ApplyResult:
         await self._open_and_read(ctx, ctx.job.url)
-        if not await click_button(ctx, "apply for this job", "^application$"):
-            await ctx.page.goto(ctx.job.apply_url, wait_until="domcontentloaded")
+        clicked = await click_button(ctx, "apply for this job", "^application$")
+        await ctx.human.pause(1, 2)
+        if not clicked or "/application" not in ctx.page.url:  # a banner can swallow the click
+            await ctx.page.goto(ctx.job.apply_url or ctx.job.url.rstrip("/") + "/application",
+                                wait_until="domcontentloaded")
+            await dismiss_cookies(ctx)
         await ctx.human.pause(1.5, 3)
         await guards.check_page(ctx.page)
         answers = await fill_form(ctx, "form, [class*=application-form]")
         res = await self._submit_and_confirm(ctx, ["submit application", "^submit"],
-                                             r"thanks for applying|application (was )?(submitted|received)|successfully submitted")
+                                             r"thanks? (you |so much )?for (applying|your application|your interest)|application (was |has been )?(successfully )?(submitted|received)|successfully submitted")
         res.extra["answers"] = answers
         return res

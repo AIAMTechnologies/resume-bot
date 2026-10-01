@@ -147,9 +147,19 @@ def settings() -> Settings:
     return Settings.model_validate(_load_yaml("settings.yaml"))
 
 
-@lru_cache
+_answers_cache: dict[str, Any] = {"mtime": None, "data": {}}
+
+
 def answers() -> dict[str, Any]:
-    return _load_yaml("answers.yaml")
+    """answers.yaml, re-read whenever you save it (no restart needed)."""
+    path = CONFIG_DIR / "answers.yaml"
+    mtime = path.stat().st_mtime if path.exists() else -1.0
+    if _answers_cache["mtime"] != mtime:
+        _answers_cache["data"], _answers_cache["mtime"] = _load_yaml("answers.yaml"), mtime
+    return _answers_cache["data"]
+
+
+answers.cache_clear = lambda: _answers_cache.update(mtime=None)  # type: ignore[attr-defined]
 
 
 @lru_cache

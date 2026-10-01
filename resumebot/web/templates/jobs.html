@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% from "_macros.html" import job_actions with context %}
 {% block content %}
+<style>
+  .answer-box summary.needs-answer { cursor: pointer; white-space: nowrap; color: var(--warn, #b45309); font-size: 12px; font-weight: 600; margin-top: 4px; }
+  .answer-box[open] { min-width: 340px; background: var(--card-2, rgba(127,127,127,.06)); border-radius: 8px; padding: 8px; margin-top: 6px; }
+  .answer-form { display: grid; gap: 6px; margin: 8px 0; max-width: 360px; }
+  .answer-form select, .answer-form textarea { width: 100%; margin-top: 4px; }
+</style>
 <h1>Jobs <span class="muted small">({{ jobs|length }} shown)</span></h1>
 {% if screening.running %}
 <div class="card" role="status" style="margin-bottom:14px">⏳ Screening jobs: {{ screening.done or 0 }} of {{ screening.total }} done, {{ screening.waiting }} left. This page refreshes automatically.</div>
@@ -32,7 +38,27 @@
       {% elif j.status == 'new' %}<span class="small muted">waiting</span>
         <form method="post" action="/jobs/{{ j.id }}/score"><button class="btn sm" title="Score this job now">Score now</button></form>
       {% else %}<span class="small muted" title="Not scored: {{ j.status_reason }}">—</span>{% endif %}</td>
-    <td><span class="st-{{ j.status }}">{{ j.status }}</span><div class="small muted">{{ j.status_reason[:70] }}</div></td>
+    <td><span class="st-{{ j.status }}">{{ j.status }}</span>
+      {% set qs = questions.get(j.id, []) %}
+      {% if qs %}
+      <details class="answer-box">
+        <summary class="needs-answer">❓ Answer {{ qs|length }} question{{ 's' if qs|length > 1 }}</summary>
+        {% for i in qs %}
+        <form method="post" action="/review/{{ i.id }}" class="answer-form">
+          <input type="hidden" name="action" value="answer">
+          <label class="small"><b>{{ i.question|truncate(220) }}</b>
+          {% if i.context %}
+            <select name="answer">{% for o in i.context.split(' | ') %}<option {{ 'selected' if o == i.proposed_answer }}>{{ o }}</option>{% endfor %}</select>
+          {% else %}
+            <textarea name="answer" rows="2" placeholder="Your answer (saved and reused)">{{ i.proposed_answer }}</textarea>
+          {% endif %}</label>
+          <button class="btn sm primary">Save answer</button>
+        </form>
+        {% endfor %}
+        <form method="post" action="/review/{{ qs[0].id }}"><input type="hidden" name="action" value="skip"><button class="btn sm danger">Skip this job</button></form>
+      </details>
+      {% else %}<div class="small muted">{{ j.status_reason[:70] }}</div>{% endif %}
+    </td>
     <td class="row-actions">
       <a class="btn sm primary" href="/jobs/{{ j.id }}/preview">Preview &amp; apply</a>
       {{ job_actions(j) }}
