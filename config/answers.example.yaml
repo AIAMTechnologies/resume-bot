@@ -35,6 +35,7 @@ logistics:
   open_to_remote: "Yes"
   open_to_hybrid: "Yes"
   open_to_onsite: "Yes"
+  preferred_work_location: ""   # city you'd work in for US jobs (you'd relocate)
   years_experience_total: ""
   highest_education: ""
 

@@ -60,6 +60,9 @@ greenhouse:
 lever:
   - anchorage
   - sysdig
+  - palantir
+  - hive
+  - outreach
 ashby:
   - workos
   - lightspeedhq
@@ -77,3 +80,27 @@ ashby:
   - ramp
   - linear
   - notion
+  - sardine
+  - writer
+  - sentry
+  - socket
+  - snyk
+  - opal
+  - sierra
+  - harvey
+  - baseten
+  - kraken.com
+  - decagon
+  - cursor
+  - cognition
+  - perplexity
+  - langchain
+  - coder
+  - character
+  - modal
+  - elevenlabs
+  - mercor
+  - drata
+  - posthog
+  - chalk
+  - reflectionai

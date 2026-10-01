@@ -67,8 +67,12 @@ RULES: list[tuple[str, str]] = [
     (r"languages? .{0,20}(speak|fluent)|fluent.{0,20}languages?|what languages", "__languages"),
     (r"(i )?(have read|agree|consent|acknowledge|understand).{0,120}(privacy|policy|guidelines|terms|notice|processing)", "__consent"),
     (r"postal|zip", "contact.postal_code"),
-    (r"^city|current city|^(current )?location( city)?$|what city|city of residence|where do you (currently )?(live|reside)", "contact.city"),
-    (r"where are you (currently )?(located|based)|^(current )?location of residence|location where you (permanently )?reside|where (are you|do you) (currently )?(located|based|live)|^current (city|location)|where (do|will) you plan (on|to) (work|working) from", "__city_region"),
+    (r"^location( city)?$", "__location"),  # bare "Location": US job → where you'd move; else where you live
+    (r"^city|current city|^current location( city)?$|what city|city of residence|where do you (currently )?(live|reside)", "contact.city"),
+    (r"where are you (currently )?(located|based)|(current )?location of residence|location where you (permanently )?reside|where (are you|do you) (currently )?(located|based|live)|^current (city|location)", "__city_region"),
+    # Where you'd work (not where you live): you'll move to your preferred city for a US job.
+    (r"where (do|will|would) you plan (on|to) (work|working) from|^work location$|"
+     r"preferred (work )?(location|city|office)|where would you (like|prefer) to (work|be based)", "__work_location"),
     (r"province|\bstate\b", "contact.province_state"),
     (r"^country", "contact.country"),
     (r"sponsor", "__sponsorship"),
@@ -112,8 +116,14 @@ def _special(key: str, question: str, job_location: str) -> str:
         return ", ".join(langs) if isinstance(langs, list) else str(langs)
     if key == "__consent":  # same permission as consent checkboxes (answers.yaml: application_consent)
         return "Yes" if answers().get("application_consent") else ""
-    if key == "__work_country":  # where the job is, not where you are
+    if key == "__work_country":  # where the job is; offered in the US too → the US (you'll move there)
         return "United States" if us else _a("contact.country")
+    if key == "__location":
+        return (us and _a("logistics.preferred_work_location")) or _a("contact.city")
+    if key == "__work_location":  # US job → your preferred US city; otherwise where you live
+        if us and _a("logistics.preferred_work_location"):
+            return _a("logistics.preferred_work_location")
+        return ", ".join(x for x in [_a("contact.city"), _a("contact.province_state")] if x)
     if key == "__city_region":
         return ", ".join(x for x in [_a("contact.city"), _a("contact.province_state")] if x)
     if key == "__full_name":
@@ -145,7 +155,7 @@ SCREENING_RULES: list[tuple[str, str]] = [
     (r"\bfinra\b|series (7|24|27|63|65|66)", "finra_licenses"),
     (r"(interviewed|applied) (with|at|for) .{0,40}(before|previously)|ever interviewed", "interviewed_here_before"),
     (r"(previously|ever|currently).{0,30}(worked|employed|consult(ed|ant)|contractor).{0,40}(at|by|for|with)\b|"
-     r"been employed by|worked for .{0,40} before", "previously_employed_here"),
+     r"been employed by|worked for .{0,40} before|been a consultant for", "previously_employed_here"),
     (r"(member|contributor) .{0,30}(our )?communit", "community_contributor"),
     (r"\bai policy\b|policy on (the )?use of ai|use of ai .{0,40}application", "ai_policy_agreement"),
     (r"(monday|mon) .{0,20}(friday|fri) .{0,40}\d|on.?call|weekends?( and|/| or) holidays?|weekend shifts?|"
@@ -229,7 +239,8 @@ def closest_option(answer: str, options: list[str]) -> str | None:
     for o in options:
         if answer.lower().startswith(("yes", "no")) and o.lower().startswith(answer.lower()[:2]):
             return o
-    synonyms = {"male": ["man", "cisgender man"], "female": ["woman", "cisgender woman"]}
+    synonyms = {"male": ["man", "cisgender man"], "female": ["woman", "cisgender woman"],
+                "united states": ["us", "usa", "united states of america", "u s"]}
     for alt in synonyms.get(answer.lower().strip(), []):
         if alt in low:
             return low[alt]
@@ -255,14 +266,20 @@ def _containing_option(answer: str, options: list[str]) -> str | None:
     Picks options containing the answer as whole words; ties go to the option that also
     mentions your province/state or country from answers.yaml.
     """
+    from .geography import US_STATES
     key = norm_q(answer)
     if len(key) < 3 or key in ("yes", "no"):
         return None
     hits = [o for o in options if re.search(rf"\b{re.escape(key)}\b", norm_q(o))]
+    city, _, state = (x.strip() for x in answer.partition(","))
+    if not hits and state.upper() in US_STATES:  # "New York, NY" → a US "New York" option, not the UK one
+        hits = [o for o in options if re.search(rf"\b{re.escape(norm_q(city))}\b", norm_q(o))]
+        context = [norm_q(x) for x in (state, US_STATES[state.upper()], "united states", "usa", "us")]
+    else:
+        region = _a("contact.province_state")
+        context = [norm_q(x) for x in (region, PROVINCES.get(region.upper(), ""), _a("contact.country")) if x]
     if not hits:
         return None
-    region = _a("contact.province_state")
-    context = [norm_q(x) for x in (region, PROVINCES.get(region.upper(), ""), _a("contact.country")) if x]
     return max(hits, key=lambda o: (sum(f" {c} " in f" {norm_q(o)} " for c in context), -len(o)))
 
 
@@ -341,7 +358,7 @@ Return {{"answer": "...", "grounded": true|false, "confidence": 0.0-1.0, "reason
     return str(result.get("answer", "")), bool(result.get("grounded")), float(result.get("confidence", 0))
 
 
-HEARD_RE = re.compile(r"how did you (hear|find|learn|come across)|where did you (hear|find|learn|see)|what (brought|led) you to|source of (your )?application|referral source", re.I)
+HEARD_RE = re.compile(r"how did you (first )?(hear|find|learn|come across)|where did you (hear|find|learn|see)|what (brought|led) you to|source of (your )?application|referral source", re.I)
 # What to look for in the options, by where the bot actually found the job (truthful answer first).
 HEARD_PREFERENCES = {
     "linkedin": [r"linkedin.*(job|post)", r"linkedin"],
@@ -365,6 +382,40 @@ def heard_about(f: Field, source: str) -> str:
     return ""
 
 
+# Greenhouse's employment block: #company-name-0, #title-0, #start-date-month-0 … #current-role-0_1, one
+# index per job. (Its education block uses a double dash — #school--0 — so it never matches here.)
+WORK_HISTORY_RE = re.compile(r"^#(company-name|title|start-date-month|start-date-year|end-date-month|end-date-year"
+                             r"|current-role)-(\d+)(?:_\d+)?$")
+MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+          "November", "December"]
+
+
+def work_history(f: Field) -> str:
+    """Employment-history fields → the Nth job in your master profile (newest first, like the resume)."""
+    m = WORK_HISTORY_RE.match(f.selector or "")
+    if not m:
+        return ""
+    jobs = [i for i in master.all_items() if i.kind == "experience"]
+    if int(m.group(2)) >= len(jobs):
+        return ""
+    job = jobs[int(m.group(2))]
+    current = (job.end or "").lower() in ("present", "current")
+    if not current and not job.end:
+        return ""  # end date unknown: ask rather than invent one
+    from datetime import date
+    today = date.today()
+    start_y, _, start_m = (job.start or "").partition("-")
+    # A current job still has required end-date boxes until "Current role" is ticked: this month.
+    end_y, _, end_m = (f"{today.year}-{today.month:02d}" if current else job.end).partition("-")
+    month = lambda mm: MONTHS[int(mm) - 1] if mm.isdigit() and 1 <= int(mm) <= 12 else ""  # noqa: E731
+    value = {"company-name": job.organization, "title": job.title, "start-date-month": month(start_m),
+             "start-date-year": start_y, "end-date-month": month(end_m), "end-date-year": end_y,
+             "current-role": "Yes" if current else "No"}[m.group(1)]
+    if m.group(1) == "current-role" and f.options and len(f.options) == 1:
+        return f.options[0] if current else ""  # a lone "Current role" checkbox
+    return (closest_option(value, f.options) if f.options and value else value) or ""
+
+
 class Answerer:
     """Per-application answerer. Records every answer and where it came from."""
 
@@ -380,6 +431,10 @@ class Answerer:
         if heard:
             self.log[f.label] = {"answer": heard, "origin": f"where the job was found ({self.source})"}
             return heard
+        val = work_history(f)
+        if val:
+            self.log[f.label] = {"answer": val, "origin": "work history (master profile)"}
+            return val
         if norm_q(f.label).startswith(("address line 2", "home address line 2", "apartment", "suite")) and \
                 not _a("contact.address_line2"):
             self.log[f.label] = {"answer": "", "origin": "left blank (optional)"}

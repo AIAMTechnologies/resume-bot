@@ -17,8 +17,9 @@ BROWSER_SOURCES = {"linkedin", "indeed"}
 
 
 PORTAL_LANES = 3
-# Greenhouse emails a human-check code when applications come in fast, so it runs one at a time.
-SINGLE_LANE_SOURCES = {"greenhouse"}
+# Greenhouse asks for an emailed human-check code on every application; the bot hands each one to you
+# (ats_boards HANDOFF_MINUTES), so it runs parallel lanes like the other portals.
+SINGLE_LANE_SOURCES: set[str] = set()
 
 
 async def _guard(name: str, coro_fn, interval: float):

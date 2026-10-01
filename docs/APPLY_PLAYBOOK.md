@@ -117,3 +117,8 @@ unknown state" and the screenshot shows the Security code boxes.
   Ashby required checkboxes, legal-waiver guard, heard/location/gender rules. Avg form ≈ 2.5–3.5 min.
 - 2026-10-01 11:20: +Tailscale (verified from screenshot), +Zscaler MDR Manager (301s). Fixed cookie banners,
   Ashby /application navigation, confirmation wording, SMS/payroll-location rules.
+- 2026-10-01 17:40: Push for 50 in 3h. Added 3 Lever + 24 Ashby boards (security/AI; no defense/crypto exchanges, no Cohere)
+  → 2,392 new jobs; screening ranks target titles first (~10 s per AI score). global_daily_cap 60→80 (needs bot restart:
+  settings/companies are lru_cached). Greenhouse stays single-lane with the code hand-off — not tuned to evade the check.
+- 2026-10-01 ~18:00: Greenhouse switched to 3 parallel lanes (SINGLE_LANE_SOURCES empty), gaps 30–60 s, cap 45 —
+  you enter each emailed code in its tab. Pause Greenhouse when away or each tab stalls 20 min then fails.
