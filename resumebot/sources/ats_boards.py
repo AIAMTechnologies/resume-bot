@@ -14,11 +14,13 @@ import httpx
 from .. import db
 from ..browser import guards
 from ..config import companies
+from ..engine import health
 from .base import ApplyContext, ApplyResult, JobData, Source, strip_html
 from .forms import click_button, fill_form, page_has_text
+from .http import headers
 
-UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/129.0 Safari/537.36"}
+UA = headers("json")
+BOARD_CONCURRENCY = 4  # company boards fetched at once (public JSON APIs; each still gets a small pause)
 
 
 def _ts(value) -> datetime | None:
@@ -38,18 +40,29 @@ class _BoardSource(Source):
         raise NotImplementedError
 
     async def discover(self, titles: list[str]) -> list[JobData]:
-        slugs = companies().get(self.name, [])
-        out: list[JobData] = []
-        async with httpx.AsyncClient(headers=UA, timeout=30, follow_redirects=True) as client:
-            for slug in slugs:
+        configured = companies().get(self.name, [])
+        slugs = [slug for slug in configured if not health.board_skipped(self.name, slug)]
+        if len(slugs) < len(configured):
+            db.log(f"Skipping {len(configured) - len(slugs)} board(s) with recent errors (Error log → Recurring problems)",
+                   source=self.name, kind="discover")
+        gate = asyncio.Semaphore(BOARD_CONCURRENCY)
+
+        async def fetch(client: httpx.AsyncClient, slug: str) -> list[JobData]:
+            async with gate:
+                await asyncio.sleep(random.uniform(0.3, 1.5))  # be polite to the API
                 try:
-                    out.extend(await self._fetch_board(client, slug))
+                    return await self._fetch_board(client, slug)
                 except httpx.HTTPStatusError as e:
                     db.log(f"Board '{slug}' returned {e.response.status_code} — check the slug in "
                            f"config/companies.yaml", level="warning", source=self.name, kind="discover")
                 except Exception as e:  # noqa: BLE001
                     db.log(f"Board '{slug}' failed: {e}", level="warning", source=self.name, kind="discover")
-                await asyncio.sleep(random.uniform(0.5, 2.0))  # be polite to the API
+                return []
+
+        out: list[JobData] = []
+        async with httpx.AsyncClient(headers=UA, timeout=30, follow_redirects=True) as client:
+            for jobs in await asyncio.gather(*(fetch(client, slug) for slug in slugs)):
+                out.extend(jobs)
         return out
 
     async def _open_and_read(self, ctx: ApplyContext, url: str) -> None:
@@ -68,7 +81,9 @@ class _BoardSource(Source):
         if ctx.dry_run:
             return ApplyResult(False, "dry run: form filled, not submitted")
         await ctx.human.pause(1.5, 4.0)  # "reviewing" before submit
+        ctx.submit_clicked = True
         if not await click_button(ctx, *submit_names):
+            ctx.submit_clicked = False
             return ApplyResult(False, "submit button not found")
         await ctx.human.pause(2, 4)
         await guards.check_page(ctx.page)

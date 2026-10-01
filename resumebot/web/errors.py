@@ -92,11 +92,20 @@ def install(app, templates):
 
     @app.get('/errors', response_class=HTMLResponse)
     async def error_log(request: Request, level: str = 'problems', request_id: str = '', job_id: int | None = None, q: str = ''):
+        from ..engine import health
+        health.scan()  # fold anything new in before showing the patterns
         return templates.TemplateResponse(request, 'errors.html', {
             'active': 'errors', 'pending_count': 0, 'automatic': db.kv_get('automatic_mode', False),
             'telegram_connected': db.kv_get('telegram_connected', False),
             'entries': entries(level, request_id, job_id, q), 'level': level,
-            'request_id': request_id, 'job_id': job_id, 'q': q})
+            'request_id': request_id, 'job_id': job_id, 'q': q, 'patterns': health.patterns()})
+
+    @app.post('/errors/patterns/{pattern_id}/resolve')
+    async def resolve_pattern(request: Request, pattern_id: int):
+        from ..engine import health
+        from fastapi.responses import RedirectResponse
+        health.resolve(pattern_id)
+        return RedirectResponse('/errors', status_code=303)
 
     @app.get('/errors/export')
     async def export(level: str = 'problems', request_id: str = '', job_id: int | None = None, q: str = ''):

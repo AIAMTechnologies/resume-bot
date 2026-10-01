@@ -89,7 +89,7 @@ async def automation_partial(request: Request):
 async def overview(request: Request):
     return page(request, "overview.html", s=stats.overview(), health=stats.source_health(),
                 by_source=stats.by_source(), skips=stats.skip_reasons(), funnel=stats.funnel(),
-                recent=stats.recent_applications(8))
+                recent=stats.recent_applications(8), bands=stats.score_bands())
 
 
 @app.get("/partials/feed", response_class=HTMLResponse)

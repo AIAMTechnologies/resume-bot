@@ -51,6 +51,8 @@ class Job(SQLModel, table=True):
     status_reason: str = ""
     easy_apply: bool = False
     updated_at: datetime = Field(default_factory=utcnow)
+    score_attempts: int = 0   # failed AI scoring attempts (persistent failures stop after a few)
+    apply_attempts: int = 0   # tailoring/apply attempts (transient failures retry once)
 
 
 class AppStatus:
@@ -122,6 +124,7 @@ class LearnedAnswer(SQLModel, table=True):
     question: str
     answer: str
     uses: int = 0
+    origin: str = "you"   # you (review answer) | ai (grounded AI answer reused after a successful submit)
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -206,3 +209,21 @@ class Email(SQLModel, table=True):
     application_id: Optional[int] = Field(default=None, foreign_key="application.id", index=True)
     job_id: Optional[int] = None
     company: str = ""
+
+
+class ErrorPattern(SQLModel, table=True):
+    """A recurring problem from the error log, what the bot did about it, and what you should do."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    key: str = Field(index=True, unique=True)   # remedy key (+ entity) or unknown:<fingerprint>
+    fingerprint: str = ""
+    kind: str = ""
+    example: str = ""                            # latest message, redacted
+    count: int = 0
+    first_seen: datetime = Field(default_factory=utcnow)
+    last_seen: datetime = Field(default_factory=utcnow, index=True)
+    status: str = Field(default="watching", index=True)  # watching | auto | needs-you | resolved
+    action: str = ""                             # what the bot did automatically
+    advice: str = ""                             # what you can do
+    job_ids: list[int] = Field(default_factory=list, sa_column=Column(JSON))
+    alerted: bool = False

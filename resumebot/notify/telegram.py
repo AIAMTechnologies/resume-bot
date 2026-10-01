@@ -152,6 +152,7 @@ HELP = """<b>Resume Bot</b>
 /pause [source|all] – pause one source (or all sources)
 /resume [source|all] – resume a source
 /run – start applying now (ignores the current wait, not caps/hours)
+/errors – recurring problems and what the bot did about them
 /dashboard – dashboard link
 Reply to a question message to answer it."""
 
@@ -256,6 +257,16 @@ async def handle_command(text: str) -> str:
         return "OK — skipping the current wait on the next scheduler tick."
     if cmd == "/dashboard":
         return f"http://{env().dashboard_host}:{env().dashboard_port}"
+    if cmd == "/errors":
+        from ..engine import health
+        health.scan()
+        rows = health.patterns(limit=8)
+        if not rows:
+            return "No recurring problems. 🩺"
+        icon = {"needs-you": "🔴", "auto": "🟡"}
+        return "\n".join(f"{icon.get(p.status, '⚪')} ×{p.count} {esc(p.example[:90])}"
+                         + (f"\n   ↳ {esc((p.action if p.action != '—' else '') or p.advice)[:160]}" if (p.action != '—' and p.action) or p.advice else "")
+                         for p in rows) + "\n\nFull list: dashboard → Error log."
     return "Unknown command. /help"
 
 
@@ -325,7 +336,7 @@ async def poll_forever() -> None:
             ("apply", "Preview and confirm: /apply JOB_ID"), ("job", "Job actions: /job JOB_ID"),
             ("apps", "Applications + status buttons"), ("automation", "Turn automation on/off"), ("screen", "Score waiting jobs now"),
             ("pauseall", "Pause everything"),
-            ("resumeall", "Resume everything")]]
+            ("resumeall", "Resume everything"), ("errors", "Recurring problems and remedies")]]
     registered = False
     while True:
         try:

@@ -109,17 +109,30 @@ async def prefetch_loop(ahead: int = 2):
 async def daily_summary_loop():
     async def run():
         from .pacing import local_now
-        from . import stats
+        from . import health, stats
         now = local_now()
         key = f"summary_sent_{now.date()}"
         if now.hour >= 20 and not db.kv_get(key):
             s = stats.overview()
+            problems = health.summary_line()
             await telegram.send(f"📊 <b>Daily summary</b>\nApplied today: {s['today']} · week: {s['week']} · "
                                 f"total: {s['total']}\nResponses: {s['responses']} ({s['response_rate']}%) · "
                                 f"interviews: {s['interviews']}\nReview queue: {s['pending_reviews']} · "
-                                f"manual: {s['manual']}")
+                                f"manual: {s['manual']}" + (f"\n{problems}" if problems else ""))
             db.kv_set(key, True)
     await _guard("summary", run, 600)
+
+
+async def health_loop():
+    """Every few minutes: fold new errors into recurring patterns and apply the known remedies.
+    Runs whether automation is on or off, since manual actions fail too."""
+    from . import health
+
+    async def run():
+        changed = health.scan()
+        yours = sum(p.status == "needs-you" for p in changed)
+        return (f"{len(changed)} pattern(s) updated" + (f", {yours} need you" if yours else "")) if changed else "No new errors"
+    await _guard("health", run, 300)
 
 
 # ---------------- automation on/off (live, no restart) ----------------
@@ -153,7 +166,8 @@ def all_tasks() -> list[asyncio.Task]:
 async def start_background(automatic: bool) -> list[asyncio.Task]:
     """Called once at startup: always listen on Telegram; start automation if requested."""
     if not any(not t.done() for t in _always):
-        _always[:] = [asyncio.create_task(telegram.poll_forever(), name="telegram")]
+        _always[:] = [asyncio.create_task(telegram.poll_forever(), name="telegram"),
+                      asyncio.create_task(health_loop(), name="health")]
     if automatic:
         await start_automation(via="startup", announce=True)
     else:

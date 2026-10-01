@@ -136,7 +136,7 @@ class Human:
     async def type(self, locator: "Locator", text: str, clear: bool = True, typos: bool = True) -> None:
         await self.click(locator)
         if clear:
-            await self.page.keyboard.press("Meta+A")
+            await self.page.keyboard.press("ControlOrMeta+A")  # ⌘A on macOS, Ctrl+A elsewhere
             await self.page.keyboard.press("Backspace")
             await self.pause(0.1, 0.4)
         if len(text) > 350:

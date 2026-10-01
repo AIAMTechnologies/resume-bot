@@ -51,6 +51,9 @@ class ApplyContext:
     materials: Materials
     answer: Callable[["Field"], Awaitable[str]]
     dry_run: bool = False
+    # Set by adapters right before they click submit: failures after this point may already have
+    # produced an application, so they are never retried automatically.
+    submit_clicked: bool = False
 
 
 @dataclass

@@ -94,6 +94,7 @@ class Matching(BaseModel):
     max_job_age_days: int = 21
     # Many companies cap or frown on repeat applications (Cohere: 5 per 90 days).
     max_apps_per_company_90d: int = 2
+    screen_concurrency: int = 3   # jobs scored by the AI at the same time
 
 
 class ATS(BaseModel):

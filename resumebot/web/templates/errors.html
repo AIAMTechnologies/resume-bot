@@ -10,6 +10,25 @@
 <button class="btn primary">Filter / refresh</button>
 <a class="btn" href="/errors">Reset filters</a>
 </form>
+{% if patterns %}
+<div class="card" style="margin-bottom:16px">
+<h2 style="margin-top:0">Recurring problems</h2>
+<p class="small muted">The bot groups repeated errors, fixes the ones it knows how to (dead board slugs are skipped for a week, companies whose forms keep failing are prepared for you instead, sources that trigger bot checks slow down), and lists the rest here. Resolved patterns reopen if they come back.</p>
+<table>
+<tr><th>Status</th><th>Problem</th><th class="num">Times</th><th>Last seen</th><th>What the bot did / what you can do</th><th></th></tr>
+{% for p in patterns %}
+<tr>
+<td>{% if p.status == 'needs-you' %}<span class="st-review">needs you</span>{% elif p.status == 'auto' %}<span class="st-applied">auto-adjusted</span>{% else %}<span class="muted">watching</span>{% endif %}</td>
+<td style="max-width:420px;overflow-wrap:anywhere"><span class="small">{{ p.example }}</span>{% if p.job_ids %}<div class="small">{% for j in p.job_ids %}<a href="/jobs/{{ j }}/preview">#{{ j }}</a> {% endfor %}</div>{% endif %}</td>
+<td class="num">{{ p.count }}</td>
+<td class="small muted">{{ p.last_seen|local('%b %d %H:%M') }}</td>
+<td class="small">{% if p.action and p.action != '—' %}<b>Done:</b> {{ p.action }}<br>{% endif %}{% if p.advice %}{{ p.advice }}{% endif %}</td>
+<td><form method="post" action="/errors/patterns/{{ p.id }}/resolve"><button class="btn sm">Resolved</button></form></td>
+</tr>
+{% endfor %}
+</table>
+</div>
+{% endif %}
 <p><a href="/errors/export?level={{ level|urlencode }}&amp;request_id={{ request_id|urlencode }}&amp;q={{ q|urlencode }}{% if job_id is not none %}&amp;job_id={{ job_id }}{% endif %}">Download these entries</a> · Local file: <code>data/logs/diagnostics.jsonl</code></p>
 {% for entry in entries %}
 <div class="card" style="margin-bottom:12px">

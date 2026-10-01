@@ -69,10 +69,20 @@ def parse_json(text: str) -> Any:
 
 async def complete_json(prompt: str, system: str = "", max_tokens: int = 4000, *, context: str = "",
                         fast: bool = False) -> Any:
+    """Ask for JSON; if the reply isn't parseable, ask once more before giving up (truncated or
+    prose-wrapped replies are the most common one-off model failure)."""
     llm = get_llm(fast=fast)
-    reply = await llm.complete(prompt + "\n\nRespond with JSON only, no prose.", system=system,
-                               max_tokens=max_tokens, context=context)
-    return parse_json(reply)
+    suffix = "\n\nRespond with JSON only, no prose."
+    reply = await llm.complete(prompt + suffix, system=system, max_tokens=max_tokens, context=context)
+    try:
+        return parse_json(reply)
+    except LLMError as first:
+        from .. import db
+        db.log(f"Model reply was not valid JSON; asking once more ({first})"[:300], level="warning", kind="llm")
+        reply = await llm.complete(prompt + suffix + "\nYour previous reply was not valid JSON. Return exactly "
+                                   "one complete JSON value and nothing else.",
+                                   system=system, max_tokens=max_tokens, context=context)
+        return parse_json(reply)
 
 
 __all__ = ["get_llm", "parse_json", "complete_json", "LLM", "LLMError"]

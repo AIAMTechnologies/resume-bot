@@ -27,6 +27,37 @@ def _sqlite_pragmas(dbapi_conn, _):
 
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
+    add_missing_columns()
+
+
+def add_missing_columns() -> list[str]:
+    """Tiny forward-only migration: add columns that newer models declare to existing tables.
+
+    SQLite can add a column in place; the Python default becomes the column default so old rows
+    read back correctly. Returns the columns added (for logs/tests).
+    """
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+    added: list[str] = []
+    with engine.begin() as conn:
+        for table in SQLModel.metadata.sorted_tables:
+            if not inspector.has_table(table.name):
+                continue
+            existing = {c["name"] for c in inspector.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in existing:
+                    continue
+                ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {col.type.compile(engine.dialect)}'
+                default = col.default.arg if col.default is not None else None
+                if isinstance(default, bool):
+                    ddl += f" DEFAULT {int(default)}"
+                elif isinstance(default, (int, float)):
+                    ddl += f" DEFAULT {default}"
+                elif isinstance(default, str):
+                    ddl += " DEFAULT '" + default.replace("'", "''") + "'"
+                conn.execute(text(ddl))
+                added.append(f"{table.name}.{col.name}")
+    return added
 
 
 @contextmanager

@@ -26,15 +26,23 @@ from ..resume import tailor as tailoring
 from ..sources import SOURCES
 from ..sources.base import ApplyContext, JobData, ManualRequired, Materials, NeedsInput
 from ..sources.routing import Rerouted, route
-from . import matcher, review
+from . import health, matcher, review
 from .pacing import Gate
-from .questions import Answerer
+from .questions import Answerer, remember_ai_answers
 
 
 # Sources where the bot prepares everything and you click submit (never automated in a browser).
 ASSIST_SOURCES = {"linkedin"}
 # Company application portals: no account to protect, so the bot moves at a brisk human pace.
 BRISK_SOURCES = {"greenhouse", "lever", "ashby"}
+# Persistent AI scoring failures stop after this many tries (the job is parked for you instead of
+# costing an AI call every minute forever).
+MAX_SCORE_ATTEMPTS = 3
+# Tailoring/apply problems that happen before anything is submitted get one more try, after a pause.
+MAX_APPLY_ATTEMPTS = 2
+RETRY_DELAY = timedelta(minutes=10)
+TRANSIENT_RE = re.compile(r"timeout|timed out|net::ERR|ECONNRESET|connection (reset|refused)|navigation|"
+                          r"target page, context or browser has been closed|temporarily unavailable|\b5\d\d\b", re.I)
 
 
 # ---------------- discovery ----------------
@@ -120,7 +128,18 @@ async def screen_job(job: Job, progress: str = "") -> str:
             db.kv_set("ai_wait_until", until.isoformat())
             db.log(f"AI plans out of allowance — screening paused until {until:%H:%M} UTC", level="warning", kind="score")
             raise AIUnavailable(str(e)) from e
-        db.log(f"Scoring failed for #{job.id}: {e}", level="error", kind="score", job_id=job.id)
+        job.score_attempts = (job.score_attempts or 0) + 1
+        job.updated_at = utcnow()
+        if job.score_attempts >= MAX_SCORE_ATTEMPTS:
+            job.status, job.status_reason = JobStatus.REVIEW, f"scoring failed {job.score_attempts}x: {e}"[:300]
+            db.save(job)
+            db.log(f"Scoring failed {job.score_attempts}x for #{job.id}; parked for your review: {e}"[:400],
+                   level="error", kind="score", job_id=job.id)
+            await review.job_review(job, job.status_reason)
+            return job.status
+        db.save(job)
+        db.log(f"Scoring failed for #{job.id} (attempt {job.score_attempts}/{MAX_SCORE_ATTEMPTS}, will retry): {e}"[:400],
+               level="warning", kind="score", job_id=job.id)
         return "error"
     if job.match_score >= cfg.auto_apply_score:
         job.status, job.status_reason = JobStatus.QUEUED, f"score {job.match_score}"
@@ -147,20 +166,34 @@ async def triage_new(limit: int = 25) -> str:
         return "Waiting for AI allowance to reset"
     async with _triage_lock:
         new_jobs = _new_jobs(limit)
-        scored = 0
-        for index, job in enumerate(new_jobs, 1):
-            runtime.update("triage", message=f"Checking {index}/{len(new_jobs)}: #{job.id} {job.title} @ {job.company}",
-                           job_id=job.id)
-            with db.session() as s:
-                current = s.get(Job, job.id)
-            if current is None or current.status != JobStatus.NEW:
-                continue  # screened meanwhile (e.g. "Score now")
-            try:
-                await screen_job(current, f"{index}/{len(new_jobs)}: ")
-            except AIUnavailable:
-                return f"Paused: AI allowance exhausted after {index - 1} job(s)"
-            scored += current.match_score is not None
-    return f"Screened {len(new_jobs)} job(s), {scored} scored by AI" if new_jobs else "No new jobs to screen"
+        total, scored, done = len(new_jobs), 0, 0
+        stop = asyncio.Event()
+        # A few jobs score at once (rule filters are instant; only the AI calls take time).
+        gate = asyncio.Semaphore(max(1, settings().matching.screen_concurrency))
+
+        async def one(index: int, job: Job) -> None:
+            nonlocal scored, done
+            async with gate:
+                if stop.is_set():
+                    return
+                runtime.update("triage", message=f"Checking {index}/{total}: #{job.id} {job.title} @ {job.company}",
+                               job_id=job.id)
+                with db.session() as s:
+                    current = s.get(Job, job.id)
+                if current is None or current.status != JobStatus.NEW:
+                    return  # screened meanwhile (e.g. "Score now")
+                try:
+                    await screen_job(current, f"{index}/{total}: ")
+                except AIUnavailable:
+                    stop.set()
+                    return
+                done += 1
+                scored += current.match_score is not None
+
+        await asyncio.gather(*(one(index, job) for index, job in enumerate(new_jobs, 1)))
+        if stop.is_set():
+            return f"Paused: AI allowance exhausted after {done} job(s)"
+    return f"Screened {total} job(s), {scored} scored by AI" if new_jobs else "No new jobs to screen"
 
 
 async def screen_one(job_id: int) -> str:
@@ -199,6 +232,8 @@ def next_job(source_name: str) -> Job | None:
         candidates = list(s.exec(select(Job).where(Job.source == source_name, Job.status == JobStatus.QUEUED)
                                  .order_by(Job.match_score.desc(), Job.discovered_at).limit(25)))
     for job in candidates:
+        if job.apply_attempts and job.updated_at and job.updated_at > utcnow() - RETRY_DELAY:
+            continue  # a retry after a transient failure waits a little, like a person would
         # Last check before submitting: jobs queued under older rules must still pass today's filters.
         ok, why = matcher.location_ok(job)
         if ok:
@@ -361,13 +396,24 @@ async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None 
             db.log(f"AI quota unavailable — pausing applications until {until:%H:%M} UTC ({e})"[:300],
                    level="warning", source=job.source, kind="tailor", job_id=job.id)
             return None
-        job.status, job.status_reason = (prior_status, prior_reason) if dry_run else (
-            JobStatus.FAILED, f"tailoring failed: {e}"[:300])
+        if dry_run:
+            job.status, job.status_reason = prior_status, prior_reason
+        else:
+            job.apply_attempts = (job.apply_attempts or 0) + 1
+            if job.apply_attempts < MAX_APPLY_ATTEMPTS:
+                job.status = prior_status if prior_status != JobStatus.APPLYING else JobStatus.QUEUED
+                job.status_reason = f"tailoring failed, will retry ({job.apply_attempts}/{MAX_APPLY_ATTEMPTS}): {e}"[:300]
+            else:
+                job.status, job.status_reason = JobStatus.FAILED, f"tailoring failed: {e}"[:300]
+        job.updated_at = utcnow()
         db.save(job)
-        db.log(f"Tailoring failed: {e}", level="error", source=job.source, kind="tailor", job_id=job.id)
+        db.log(f"Tailoring failed: {e}", level="error" if job.status == JobStatus.FAILED else "warning",
+               source=job.source, kind="tailor", job_id=job.id)
         return None
 
-    if job.source in ASSIST_SOURCES or job.source in ("workday", "external"):
+    manual_reason = "" if job.source in ASSIST_SOURCES or job.source in ("workday", "external") \
+        else health.company_manual(job.company)
+    if job.source in ASSIST_SOURCES or job.source in ("workday", "external") or manual_reason:
         # Prepared for you, submitted by you — no browser, no LinkedIn session involved.
         if dry_run:
             job.status, job.status_reason, job.updated_at = prior_status, prior_reason, utcnow()
@@ -381,11 +427,11 @@ async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None 
                 outreach = await tailoring.outreach_note(job)
             except Exception:  # noqa: BLE001
                 outreach = ""
-        job.status, job.status_reason = JobStatus.MANUAL, "ready for you to submit"
+        job.status, job.status_reason = JobStatus.MANUAL, manual_reason or "ready for you to submit"
         job.updated_at = utcnow()
         db.save(job)
-        await review.manual_review(job, "LinkedIn Easy Apply" if job.source == "linkedin" and job.easy_apply
-                                   else f"{job.source} site",
+        await review.manual_review(job, manual_reason or ("LinkedIn Easy Apply" if job.source == "linkedin" and job.easy_apply
+                                                          else f"{job.source} site"),
                                    str(materials.resume_pdf), materials.cover_letter, outreach)
         db.log(f"Prepared for you: {job.title} @ {job.company} (ATS {tr.report.score})",
                level="success", source=job.source, kind="apply", job_id=job.id)
@@ -396,8 +442,10 @@ async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None 
                       cover_letter=materials.cover_letter, ats_score=tr.report.score,
                       keyword_coverage=tr.report.keyword_coverage, status=AppStatus.FAILED)
     applied_note = ""
+    check_note = ""
     started = time.monotonic()
     answerer = Answerer(job.title, job.company, job.description, job.location, source=job.source)
+    ctx = None
     try:
         async with browsers.page(job.source) as page:
             human = Human(page, brisk=job.source in BRISK_SOURCES)
@@ -413,7 +461,9 @@ async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None 
         if result.submitted:
             app.status, app.submitted_at = AppStatus.SUBMITTED, utcnow()
             job.status, job.status_reason = JobStatus.APPLIED, result.note
-            db.log(f"✅ Applied: {job.title} @ {job.company} ({app.duration_seconds:.0f}s, ATS {app.ats_score})",
+            learned = remember_ai_answers(answerer.log, job.company)
+            db.log(f"✅ Applied: {job.title} @ {job.company} ({app.duration_seconds:.0f}s, ATS {app.ats_score})"
+                   + (f" · remembered {learned} answer(s) for next time" if learned else ""),
                    level="success", source=job.source, kind="apply", job_id=job.id)
             applied_note = (f"✅ Applied: <b>{esc(job.title)}</b> — {esc(job.company)} ({job.source}, "
                             f"match {job.match_score}, ATS {app.ats_score})\nLater, tap what happened:")
@@ -427,9 +477,12 @@ async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None 
                 else:
                     job.status, job.status_reason = prior_status, prior_reason
             else:
-                job.status, job.status_reason = JobStatus.FAILED, result.note
-            db.log(f"Not submitted: {job.title} @ {job.company} — {result.note}",
-                   level="info" if dry_run else "warning", source=job.source, kind="apply", job_id=job.id)
+                job.status, job.status_reason = _failure_status(job, result.note, ctx.submit_clicked)
+                if job.status == JobStatus.REVIEW:
+                    check_note = app.error = job.status_reason
+            db.log(f"Not submitted: {job.title} @ {job.company} — {job.status_reason if not dry_run else result.note}",
+                   level="info" if dry_run else ("error" if job.status == JobStatus.FAILED else "warning"),
+                   source=job.source, kind="apply", job_id=job.id)
     except NeedsInput as ni:
         job.status, job.status_reason = JobStatus.REVIEW, f"{len(ni.questions)} question(s) need you"
         app = None
@@ -466,16 +519,51 @@ async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None 
             db.log(f"Interrupted: {job.title} @ {job.company} (browser closed)", level="warning",
                    source=job.source, kind="apply", job_id=job.id)
         else:
-            job.status, job.status_reason = JobStatus.FAILED, f"{type(e).__name__}: {e}"[:300]
+            job.status, job.status_reason = _exception_status(job, e, bool(ctx and ctx.submit_clicked))
             app.error = job.status_reason
-            db.log(f"Apply error: {job.status_reason}", level="error", source=job.source, kind="apply", job_id=job.id)
+            if job.status == JobStatus.REVIEW:
+                check_note = job.status_reason
+            db.log(f"Apply error: {job.status_reason}", level="error" if job.status == JobStatus.FAILED else "warning",
+                   source=job.source, kind="apply", job_id=job.id)
     job.updated_at = utcnow()
     db.save(job)
     if app is not None and not dry_run:
         db.save(app)
         if app.submitted_at and applied_note:
             telegram.notify(applied_note, telegram.app_buttons(app.id))
+        elif check_note:
+            telegram.notify(f"⚠️ <b>Check this one</b>: {esc(job.title)} — {esc(job.company)}\n{esc(check_note)}\n"
+                            f"Screenshot: /applications/{app.id} on the dashboard. If it went through, tap ✅.",
+                            telegram.job_buttons(job.id, more=False))
     return app
+
+
+def _failure_status(job: Job, note: str, submit_clicked: bool) -> tuple[str, str]:
+    """Where a not-submitted application goes next.
+
+    After the submit click the form may already have been accepted, so the job is never retried
+    automatically: a visible validation error is a plain failure, an unknown state is yours to check.
+    Before the click, a one-off problem (button missing, page stuck) gets one more try after a pause.
+    """
+    job.apply_attempts = (job.apply_attempts or 0) + 1
+    if submit_clicked:
+        if "unknown state" in note:
+            return JobStatus.REVIEW, f"possibly submitted — check the screenshot before retrying ({note})"[:300]
+        return JobStatus.FAILED, note[:300]
+    if job.apply_attempts < MAX_APPLY_ATTEMPTS:
+        return JobStatus.QUEUED, f"will retry ({job.apply_attempts}/{MAX_APPLY_ATTEMPTS}): {note}"[:300]
+    return JobStatus.FAILED, note[:300]
+
+
+def _exception_status(job: Job, error: BaseException, submit_clicked: bool) -> tuple[str, str]:
+    reason = f"{type(error).__name__}: {error}"[:300]
+    job.apply_attempts = (job.apply_attempts or 0) + 1
+    if submit_clicked:
+        return JobStatus.REVIEW, f"error after submit — check whether it went through: {reason}"[:300]
+    transient = "Timeout" in type(error).__name__ or TRANSIENT_RE.search(str(error)) is not None
+    if transient and job.apply_attempts < MAX_APPLY_ATTEMPTS:
+        return JobStatus.QUEUED, f"will retry ({job.apply_attempts}/{MAX_APPLY_ATTEMPTS}): {reason}"[:300]
+    return JobStatus.FAILED, reason
 
 
 AI_LIMIT_RE = re.compile(r"allowance|usage limit|session limit|rate.?limit|quota|overloaded|\b429\b|hit your .*limit|"

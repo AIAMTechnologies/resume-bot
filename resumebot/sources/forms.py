@@ -218,6 +218,22 @@ async def _settle(ctx: ApplyContext, timeout: float = 20) -> None:
     await ctx.human.pause(0.8, 1.8)
 
 
+def _wanted(f: dict, consent_ok: bool) -> "Field | None":
+    """The question a scanned field will ask the answerer, or None when it needs no answer."""
+    kind, label = f["kind"], f.get("label", "")
+    if kind in ("radio", "checkgroup"):
+        return None if f.get("checked") else Field(label, "radio", f["options"], f["required"])
+    if kind == "checkbox":
+        if SKIP_CHECKBOX_RE.search(label) or CONSENT_RE.search(label) or f.get("value") == "true" or not f["required"]:
+            return None
+        return Field(label, "checkbox", ["Yes", "No"], True)
+    if f.get("value") or kind in ("file", "combobox"):
+        return None  # prefilled, uploads, or options unknown until the box is opened
+    if kind == "select":
+        return Field(label, "select", f.get("options") or [], f["required"])
+    return Field(label, kind, None, f["required"])
+
+
 def _field_key(f: dict) -> str:
     """Identity that survives re-scans (temporary data-rb-id markers change every scan)."""
     stable = [x for x in [f.get("selector"), *(f.get("selectors") or [])] if x and "data-rb-id" not in x]
@@ -262,9 +278,17 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
                   if f["kind"] != "file" and _field_key(f) not in seen]
         if round_ and not any(not f.get("value") and not f.get("checked") for f in fields):
             break
+        prefetch = getattr(ctx.answer, "prefetch", None)
+        if prefetch:
+            # One AI round-trip for every question the rules can't answer, instead of one per field.
+            wanted = [w for w in (_wanted(f, consent_ok) for f in fields) if w is not None]
+            if wanted:
+                await prefetch(wanted)
         for f in fields:
             seen.add(_field_key(f))
             kind, label = f["kind"], f.get("label", "")
+            if random.random() < 0.15:
+                await ctx.human.pause(0.8, 2.5)  # reading the question before answering it
             try:
                 if kind == "file":
                     role = _file_role(label, f.get("name", ""), f.get("selector", ""))

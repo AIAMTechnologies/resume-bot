@@ -110,6 +110,40 @@ def by_source() -> list[dict]:
             for src, c in sorted(agg.items())]
 
 
+SCORE_BANDS = [(90, 101, "90+"), (80, 90, "80–89"), (70, 80, "70–79"), (60, 70, "60–69"), (0, 60, "< 60")]
+
+
+def score_bands() -> dict:
+    """What happened to applications by the AI match score they were sent with. This is the feedback
+    loop for `matching.auto_apply_score`: if a band below the threshold never hears back while the
+    bands above do, the threshold is doing its job (or should move up)."""
+    cfg = settings().matching
+    with db.session() as s:
+        rows = s.exec(select(Job.match_score, Application.status).join(Application, Application.job_id == Job.id)
+                      .where(Application.submitted_at.is_not(None))).all()
+    bands = []
+    for low, high, label in SCORE_BANDS:
+        hits = [status for score, status in rows if score is not None and low <= score < high]
+        responses = sum(status in RESPONSE_STATUSES for status in hits)
+        positive = sum(status in POSITIVE for status in hits)
+        bands.append({"band": label, "low": low, "applied": len(hits), "responses": responses, "positive": positive,
+                      "response_rate": round(100 * responses / len(hits)) if hits else None,
+                      "positive_rate": round(100 * positive / len(hits)) if hits else None})
+    suggestion = ""
+    judged = [b for b in bands if b["applied"] >= 8]
+    lowest = next((b for b in reversed(judged) if b["low"] >= cfg.review_score), None)
+    higher = [b for b in judged if b["low"] > (lowest or {}).get("low", 999)]
+    if lowest and higher and lowest["positive"] == 0 and any(b["positive"] for b in higher):
+        suggestion = (f"Applications scored {lowest['band']} ({lowest['applied']} sent) never led to an assessment or "
+                      f"interview while higher bands did — consider raising matching.auto_apply_score above "
+                      f"{lowest['low'] + 9}.")
+    elif lowest and lowest["positive"] and lowest["low"] >= cfg.auto_apply_score and lowest["low"] > cfg.review_score:
+        suggestion = (f"Applications scored {lowest['band']} do get interviews — jobs in the review band may be worth "
+                      "approving more often, or lowering matching.auto_apply_score a little.")
+    return {"bands": bands, "suggestion": suggestion, "auto_apply_score": cfg.auto_apply_score,
+            "review_score": cfg.review_score}
+
+
 def skip_reasons(limit: int = 8) -> list[tuple[str, int]]:
     with db.session() as s:
         rows = s.exec(select(Job.status_reason).where(Job.status == JobStatus.SKIPPED)).all()

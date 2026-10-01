@@ -24,12 +24,12 @@ from bs4 import BeautifulSoup
 from .. import db
 from ..config import settings
 from .base import ApplyContext, ApplyResult, JobData, ManualRequired, Source
+from .http import headers
 
 SEARCH = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
 DETAIL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{id}"
-UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
-      "Chrome/144.0 Safari/537.36")
-HEADERS = {"User-Agent": UA, "Accept-Language": "en-CA,en;q=0.9"}
+# The same headers a signed-out Chrome sends when LinkedIn's own page fetches these fragments.
+HEADERS = headers("html", referer="https://www.linkedin.com/jobs/search/")
 
 
 class RateLimited(Exception):

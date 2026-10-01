@@ -174,6 +174,25 @@ def status():
     console.print(t)
 
 
+@app.command()
+def errors(resolved: bool = typer.Option(False, help="Include patterns you marked resolved")):
+    """Recurring problems from the error log, what was done about them, and what needs you."""
+    from .engine import health
+    _boot()
+    health.scan()
+    rows = health.patterns(include_resolved=resolved)
+    if not rows:
+        console.print("[green]No recurring problems.[/]")
+        return
+    t = Table("status", "times", "last seen", "problem", "done / to do")
+    for p in rows:
+        colour = {"needs-you": "red", "auto": "yellow", "resolved": "green"}.get(p.status, "white")
+        t.add_row(f"[{colour}]{p.status}[/]", str(p.count), p.last_seen.strftime("%b %d %H:%M"), p.example[:90],
+                  " ".join(x for x in [p.action if p.action != "—" else "", p.advice] if x)[:160])
+    console.print(t)
+    console.print("Dashboard: Error log → Recurring problems. `resumebot errors --resolved` shows closed ones.")
+
+
 @app.command("telegram-chat-id")
 def telegram_chat_id():
     """After sending your bot any message, print the chat id to put in .env."""

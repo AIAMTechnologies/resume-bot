@@ -48,10 +48,13 @@ class FastHuman:
 
 
 async def _launch(pw):
+    import os
     try:
         return await pw.chromium.launch(channel="chrome", headless=True)
     except Exception:  # Google Chrome not installed; Playwright's own Chromium is fine for this page
-        return await pw.chromium.launch(headless=True)
+        exe = os.environ.get("RESUMEBOT_TEST_CHROMIUM") or (
+            "/opt/pw-browsers/chromium" if Path("/opt/pw-browsers/chromium").exists() else None)
+        return await pw.chromium.launch(headless=True, executable_path=exe)
 
 
 @pytest.fixture
@@ -131,7 +134,7 @@ async def test_ashby_required_location_and_button_questions(tmp_path, chrome_pag
             raise NeedsHuman(f.label, '', f.options)
         return 'No'
     async with chrome_page.async_playwright() as pw:
-        browser = await pw.chromium.launch(channel='chrome', headless=True)
+        browser = await _launch(pw)
         page = await browser.new_page()
         await page.set_content(ASHBY_CONTROLS)
         ctx = ApplyContext(job=None, page=page, human=FastHuman(page),
@@ -153,7 +156,7 @@ async def test_unmatched_combobox_does_not_press_enter(chrome_page):
     from types import SimpleNamespace
     from resumebot.sources import forms
     async with chrome_page.async_playwright() as pw:
-        browser = await pw.chromium.launch(channel='chrome', headless=True)
+        browser = await _launch(pw)
         page = await browser.new_page()
         await page.set_content('<form onsubmit="window.submitted=true;return false"><input role="combobox"></form>')
         ctx = SimpleNamespace(page=page, human=FastHuman(page))
@@ -170,7 +173,7 @@ async def test_fills_fields_after_reactive_rerender(tmp_path, chrome_page):
     async def answer(field):
         return {"First": "Ammar", "Last": "Alam"}.get(field.label, "")
     async with chrome_page.async_playwright() as pw:
-        browser = await pw.chromium.launch(channel="chrome", headless=True)
+        browser = await _launch(pw)
         page = await browser.new_page()
         await page.set_content('''<form><label for="first">First</label><input id="first"
           oninput="document.querySelectorAll('[data-rb-id]').forEach(e => e.removeAttribute('data-rb-id'))">

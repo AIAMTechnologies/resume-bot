@@ -128,7 +128,13 @@ class Gate:
 
     @property
     def cfg(self) -> SourcePacing:
-        return settings().pacing.sources.get(self.source, SourcePacing(enabled=False))
+        cfg = settings().pacing.sources.get(self.source, SourcePacing(enabled=False))
+        from .health import pacing_scale
+        scale = pacing_scale(self.source)
+        if scale > 1.0:  # the error monitor slowed this source down after repeated challenges
+            cfg = cfg.model_copy(update={"min_gap_seconds": int(cfg.min_gap_seconds * scale),
+                                         "max_gap_seconds": int(cfg.max_gap_seconds * scale)})
+        return cfg
 
     def check(self) -> Decision:
         st = db.source_state(self.source)

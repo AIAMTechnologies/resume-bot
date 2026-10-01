@@ -133,6 +133,7 @@ class Indeed(Source):
                 if ctx.dry_run:
                     return ApplyResult(False, "dry run: reached submit", extra={"answers": answers})
                 await ctx.human.pause(1.5, 4)
+                ctx.submit_clicked = True
                 await ctx.human.click(submit.first)
                 ok = await page_has_text(ctx, r"application has been submitted|you.ve applied|application submitted", 25)
                 return ApplyResult(ok, "Indeed Apply submitted" if ok else "no confirmation seen",

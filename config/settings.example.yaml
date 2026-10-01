@@ -24,6 +24,7 @@ matching:
   review_score: 60         # between review_score and auto_apply_score: review queue
   max_job_age_days: 21
   max_apps_per_company_90d: 2   # applications (incl. prepared LinkedIn cards) per company per 90 days
+  screen_concurrency: 3         # jobs scored by the AI at the same time (the CLI backend runs 2 at once)
 
 ats:
   min_keyword_coverage: 0.55   # share of JD keywords present in tailored resume

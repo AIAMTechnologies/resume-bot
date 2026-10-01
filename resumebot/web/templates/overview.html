@@ -58,6 +58,16 @@
         <h3 style="margin-top:16px">Top reasons jobs were skipped</h3>
         {% for reason, n in skips %}<div class="small" style="display:flex;justify-content:space-between"><span>{{ reason }}</span><span class="muted">{{ n }}</span></div>
         {% else %}<div class="small muted">—</div>{% endfor %}
+        <h3 style="margin-top:16px" title="Does the AI match score predict replies? Auto-apply threshold: {{ bands.auto_apply_score }}, review from {{ bands.review_score }}">What the match score predicts</h3>
+        <table>
+          <tr><th>Score</th><th class="num">Sent</th><th class="num">Replies</th><th class="num">Interviews</th></tr>
+          {% for b in bands.bands if b.applied %}
+          <tr><td>{{ b.band }}{% if b.low == bands.auto_apply_score %} <span class="muted small">auto</span>{% endif %}</td>
+            <td class="num">{{ b.applied }}</td><td class="num">{{ b.responses }} <span class="muted small">{{ b.response_rate }}%</span></td>
+            <td class="num">{{ b.positive }} <span class="muted small">{{ b.positive_rate }}%</span></td></tr>
+          {% else %}<tr><td colspan="4" class="empty">Fills in as applications hear back.</td></tr>{% endfor %}
+        </table>
+        {% if bands.suggestion %}<p class="small" style="margin-top:8px">💡 {{ bands.suggestion }}</p>{% endif %}
       </div>
     </div>
 

@@ -204,14 +204,32 @@ def from_memory(f: Field) -> str | None:
     return None
 
 
-def remember(question: str, answer: str) -> None:
+def remember(question: str, answer: str, origin: str = "you") -> None:
     q = norm_q(question)
     with db.session() as s:
         row = s.exec(select(LearnedAnswer).where(LearnedAnswer.question_norm == q)).first()
+        if row and row.origin == "you" and origin == "ai":
+            return  # your own answer always wins over what the AI chose
         row = row or LearnedAnswer(question_norm=q, question=question, answer=answer)
-        row.answer = answer
+        row.answer, row.origin = answer, origin
         s.add(row)
         s.commit()
+
+
+def remember_ai_answers(log: dict[str, dict], company: str = "") -> int:
+    """After a successful submission, keep the AI's answers to closed questions (a fixed set of
+    options, e.g. "Do you have a valid driver's licence? Yes/No"). The same question on the next
+    form is then answered from memory: no AI call, no chance of a different answer. Free-text
+    answers and anything naming the company stay per-application."""
+    kept = 0
+    for label, entry in log.items():
+        if not str(entry.get("origin", "")).startswith("llm") or not entry.get("closed") or not entry.get("answer"):
+            continue
+        if company and norm_q(company) and norm_q(company) in norm_q(label):
+            continue
+        remember(label, entry["answer"], origin="ai")
+        kept += 1
+    return kept
 
 
 ANSWER_SYSTEM = """You fill in job application questions for a candidate using ONLY the facts
@@ -239,6 +257,41 @@ Return {{"answer": "...", "grounded": true|false, "confidence": 0.0-1.0, "reason
         system=ANSWER_SYSTEM, max_tokens=800, context=master.prompt_context(),
         fast=f.kind != "textarea")  # written answers are read by people; use the main model
     return str(result.get("answer", "")), bool(result.get("grounded")), float(result.get("confidence", 0))
+
+
+async def from_llm_batch(fields: list[Field], job_title: str, company: str, description: str, fast: bool
+                         ) -> dict[str, tuple[str, bool, float]]:
+    """Answer several questions from one form in a single call (one AI round-trip per form instead
+    of one per question). Same rules and the same grounded/confidence gating as from_llm."""
+    std = {k: v for k, v in answers().items() if k != "eeo"}
+    numbered = "\n\n".join(f"Q{i}. {f.label}\n   FIELD TYPE: {f.kind}\n   OPTIONS: {f.options or 'free text'}"
+                           for i, f in enumerate(fields, 1))
+    result = await complete_json(f"""STANDARD ANSWERS: {std}
+
+JOB: {job_title} at {company}
+{description[:4000]}
+
+Answer every question below independently, applying the same rules to each one.
+
+{numbered}
+
+Return {{"answers": [{{"q": 1, "answer": "...", "grounded": true|false, "confidence": 0.0-1.0, "reason": "short"}}, ...]}}
+with exactly one entry per question, in order.""",
+        system=ANSWER_SYSTEM, max_tokens=min(8000, 400 + (150 if fast else 700) * len(fields)),
+        context=master.prompt_context(), fast=fast)
+    entries = result.get("answers", []) if isinstance(result, dict) else result
+    out: dict[str, tuple[str, bool, float]] = {}
+    for position, entry in enumerate(entries if isinstance(entries, list) else []):
+        if not isinstance(entry, dict):
+            continue
+        try:
+            index = int(entry.get("q", position + 1)) - 1
+        except (TypeError, ValueError):
+            index = position
+        if 0 <= index < len(fields):
+            out[fields[index].label] = (str(entry.get("answer", "")), bool(entry.get("grounded")),
+                                        float(entry.get("confidence", 0) or 0))
+    return out
 
 
 HEARD_RE = re.compile(r"how did you (hear|find|learn)|where did you (hear|find|learn)|source of (your )?application|referral source", re.I)
@@ -274,27 +327,52 @@ class Answerer:
         self.source = source
         self.min_confidence = min_confidence
         self.log: dict[str, dict[str, str]] = {}
+        self._batch: dict[str, tuple[str, bool, float]] = {}
 
-    async def __call__(self, f: Field) -> str:
+    def _quick(self, f: Field) -> tuple[str, str] | None:
+        """(answer, origin) when no AI is needed: where the job was found, memory, or answers.yaml."""
         heard = heard_about(f, self.source)
         if heard:
-            self.log[f.label] = {"answer": heard, "origin": f"where the job was found ({self.source})"}
-            return heard
+            return heard, f"where the job was found ({self.source})"
         if norm_q(f.label).startswith(("address line 2", "home address line 2", "apartment", "suite")) and \
                 not _a("contact.address_line2"):
-            self.log[f.label] = {"answer": "", "origin": "left blank (optional)"}
-            return ""
+            return "", "left blank (optional)"
         # Your own custom/approved answers beat the generic rules.
         for origin, fn in (("memory", lambda: from_memory(f)), ("config", lambda: from_rules(f, self.location))):
             val = fn()
             if val:
-                self.log[f.label] = {"answer": val, "origin": origin}
-                return val
-        answer, grounded, conf = await from_llm(f, self.job_title, self.company, self.description)
+                return val, origin
+        return None
+
+    async def prefetch(self, fields: list[Field]) -> int:
+        """Answer every question on a form that needs the AI in one call per model (short answers on
+        the fast model, written answers on the main model). Returns how many were sent."""
+        todo = [f for f in fields if f.label not in self._batch and f.label not in self.log and self._quick(f) is None]
+        for essay in (False, True):
+            group = [f for f in todo if (f.kind == "textarea") == essay]
+            if not group:
+                continue
+            try:
+                self._batch.update(await from_llm_batch(group, self.job_title, self.company, self.description,
+                                                        fast=not essay))
+            except Exception as error:  # noqa: BLE001 — fall back to one call per question
+                db.log(f"Batch answering failed; answering one by one: {error}"[:300], level="warning", kind="apply")
+        return len(todo)
+
+    async def __call__(self, f: Field) -> str:
+        quick = self._quick(f)
+        if quick is not None:
+            answer, origin = quick
+            self.log[f.label] = {"answer": answer, "origin": origin}
+            return answer
+        if f.label in self._batch:
+            answer, grounded, conf = self._batch.pop(f.label)
+        else:
+            answer, grounded, conf = await from_llm(f, self.job_title, self.company, self.description)
         if f.options:
             answer = closest_option(answer, f.options) or ""
         if answer and grounded and conf >= self.min_confidence:
-            self.log[f.label] = {"answer": answer, "origin": f"llm ({conf:.2f})"}
+            self.log[f.label] = {"answer": answer, "origin": f"llm ({conf:.2f})", "closed": bool(f.options)}
             return answer
         if not f.required:
             self.log[f.label] = {"answer": "", "origin": "skipped optional"}
