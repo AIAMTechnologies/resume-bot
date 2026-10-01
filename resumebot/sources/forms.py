@@ -42,6 +42,8 @@ SCAN_JS = r"""
     if (!t) { const l = el.closest('label'); if (l) t = textOf(l); }
     if (!t) { let p = el.parentElement; for (let i = 0; i < 4 && p && !t; i++) { t = textOf(p); p = p.parentElement; } }
     if (!t) t = el.placeholder || el.name || '';
+    // "Start Date" inside the education block is when you studied, not when you can start the job.
+    if (el.closest('.ashby-application-form-input-education-entry')) t = 'Education ' + t;
     return clean(t);
   };
   const groupLabel = el => {
@@ -75,7 +77,12 @@ SCAN_JS = r"""
         ? `${byName}[value="${CSS.escape(el.getAttribute('value'))}"]` : byName;
     }
     const entry = el.closest('[data-field-path]');
-    if (entry) return `[data-field-path="${CSS.escape(entry.getAttribute('data-field-path'))}"] ${el.tagName.toLowerCase()}`;
+    if (entry) {
+      // One entry can hold several boxes (Ashby education: school search, month and year menus): say which.
+      const tag = el.tagName.toLowerCase(), base = `[data-field-path="${CSS.escape(entry.getAttribute('data-field-path'))}"] ${tag}`;
+      const same = [...entry.querySelectorAll(tag)];
+      return same.length > 1 ? `${base} >> nth=${same.indexOf(el)}` : base;
+    }
     return `[data-rb-id="${el.getAttribute('data-rb-id')}"]`;
   };
   root.querySelectorAll('input, select, textarea').forEach(el => {
@@ -199,8 +206,13 @@ async def _clickable(ctx: ApplyContext, loc: "Locator") -> "Locator":
 OPTION_SEL = "[role=option]:visible, [role=listbox] [class*=option]:visible"
 
 
+def _flat(text: str) -> str:
+    """'University of Toronto\nCanada\nutoronto.ca' → 'University of Toronto, Canada, utoronto.ca'."""
+    return ", ".join(line.strip() for line in text.splitlines() if line.strip())
+
+
 async def _visible_options(ctx: ApplyContext) -> list[str]:
-    return [o.strip() for o in await ctx.page.locator(OPTION_SEL).all_inner_texts() if o.strip()]
+    return [o for o in map(_flat, await ctx.page.locator(OPTION_SEL).all_inner_texts()) if o]
 
 
 SEARCH_BOX_RE = re.compile(r"locat|city|where .{0,20}(based|live|located)|address|residence|school|university", re.I)
@@ -232,10 +244,12 @@ async def _pick_combobox(ctx: ApplyContext, loc: "Locator", answer: str) -> bool
     for query in dict.fromkeys(q for q in queries if q):
         await ctx.human.type(loc, query, typos=False)
         await asyncio.sleep(random.uniform(0.9, 1.5))
-        opts = await _visible_options(ctx)
+        shown = ctx.page.locator(OPTION_SEL)
+        texts = [_flat(t) for t in await shown.all_inner_texts()]
+        opts = [t for t in texts if t]
         pick = next((o for o in opts if o.lower() == answer.lower()), None) or (closest_option(answer, opts) if opts else None)
         if pick:
-            await ctx.human.click(ctx.page.locator(OPTION_SEL).filter(has_text=re.compile(rf"^\s*{re.escape(pick)}\s*$")).first)
+            await ctx.human.click(shown.nth(texts.index(pick)))  # by position: option text can span lines
             return True
     await ctx.page.keyboard.press("Escape")
     return False

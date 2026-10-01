@@ -157,3 +157,48 @@ async def test_disabled_hosted_page_becomes_a_manual_card(tmp_path, pw_api):
             await ats_boards.Ashby()._open_and_read(ctx, ctx.job.url)
     finally:
         await pw.stop()
+
+
+ASHBY_EDUCATION = """<form><div class="ashby-application-form-field-entry" data-field-path="_systemfield_education_history">
+<label>Education History</label>
+<div class="ashby-application-form-input-education-entry">
+  <div><label for="edu-school">School</label><div>
+    <input role="combobox" aria-autocomplete="list" placeholder="Search schools..."
+      oninput="document.querySelector('[role=listbox]').hidden = !this.value"></div></div>
+  <div role="listbox" hidden>
+    <div role="option" onclick="pick(this)"><div><span>University of Toledo</span></div><div>United States</div><div>utoledo.edu</div></div>
+    <div role="option" onclick="pick(this)"><div><span>University of Toronto</span></div><div>Canada</div><div>utoronto.ca</div></div>
+  </div>
+  <div><label for="edu-start">Start Date</label><div id="edu-start">
+    <select><option disabled hidden value="" selected>Month...</option><option value="9">September</option></select>
+    <select><option disabled hidden value="" selected>Year...</option><option value="2014">2014</option></select></div></div>
+</div></div>
+<script>function pick(o) { const i = document.querySelector('input'); i.value = o.querySelector('span').innerText;
+  i.dataset.picked = o.innerText; o.parentNode.hidden = true; }</script></form>"""
+
+
+@pytest.mark.parametrize("start", ["", "2014-09"])
+async def test_ashby_education_block_school_search_and_study_dates(tmp_path, pw_api, monkeypatch, start):
+    from resumebot.engine import questions
+    from resumebot.sources import forms
+    monkeypatch.setattr(forms, "answers", lambda: {})
+    monkeypatch.setattr(questions, "answers", lambda: {
+        "contact": {"province_state": "ON", "country": "Canada"},
+        "logistics": {"earliest_start": "2 weeks from offer"},
+        "education": {"school": "University of Toronto", "start_date": start}})
+
+    async def no_llm(*a, **k):
+        raise AssertionError("education fields are never sent to the AI")
+    monkeypatch.setattr(questions, "from_llm", no_llm)
+    pw, ctx = await _ctx(pw_api, tmp_path, ASHBY_EDUCATION)
+    ctx.answer = questions.Answerer("Security Engineer", "Plaid", "", "Toronto, ON", source="ashby")
+    ctx.page.set_default_timeout(3000)
+    try:
+        await ctx.page.goto(ctx.job.url)
+        await forms.fill_form(ctx, "form")
+        got = await ctx.page.evaluate("""() => ({picked: document.querySelector('input').dataset.picked || '',
+            dates: [...document.querySelectorAll('select')].map(s => s.value)})""")
+    finally:
+        await pw.stop()
+    assert "Canada" in got["picked"], got           # the Toronto school, chosen from a three-line option
+    assert got["dates"] == (["9", "2014"] if start else ["", ""]), got  # never "2 weeks from offer"

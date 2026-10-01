@@ -163,8 +163,12 @@ SCREENING_RULES: list[tuple[str, str]] = [
      r"(comfortable|committed|willing|able|available) .{0,60}(shifts?|rotation|evenings?|nights?|weekends?|overnight)", "fixed_shift_and_on_call"),
     (r"sexual orientation", "sexual_orientation"),
     (r"name pronunciation|pronounce your name", "name_pronunciation"),
-    (r"^school( name)?$|^(university|college|institution)( name)?$|school you attended", "__school"),
+    (r"^(education )?school( name)?$|^(university|college|institution)( name)?$|school you attended", "__school"),
     (r"^discipline$|field of study|^major$|area of study", "__discipline"),
+    # Ashby's education block (labels are prefixed "Education" by the form scanner).
+    (r"^education degree$", "__degree"),
+    (r"^education start date$", "__education_start"),
+    (r"^education end date$", "__education_end"),
 ]
 AGREEMENT_KEYS = {"agree_to_arbitration", "confidentiality_agreement", "third_party_background_screening", "ai_policy_agreement"}
 NONE_OPTION_RE = re.compile(r"^(n/?a|none|not applicable)\b|^no\b|do not hold|don.t hold|"
@@ -183,6 +187,17 @@ def _employers() -> list[str]:
     return sorted(names)
 
 
+def _education_date(value: str, options: list[str]) -> str:
+    """answers.yaml education.start_date / end_date ("2014-09") → the month name or the year, whichever the
+    menu lists. Blank in answers.yaml → blank here (the dates are optional; never guessed)."""
+    year, _, month = value.strip().partition("-")
+    if not year.isdigit():
+        return ""
+    if any(o in MONTHS for o in options):
+        return MONTHS[int(month) - 1] if month.isdigit() and 1 <= int(month) <= 12 else ""
+    return year
+
+
 def screening_answer(f: "Field", company: str) -> tuple[bool, str]:
     """(matched, answer). matched with "" answer → you must answer it (it's a fact about you)."""
     q = norm_q(f.label)
@@ -193,6 +208,11 @@ def screening_answer(f: "Field", company: str) -> tuple[bool, str]:
             val = _a("education.school")
         elif key == "__discipline":
             val = _a("education.discipline")
+        elif key == "__degree":
+            val = _a("education.degree") or _a("logistics.highest_education")
+        elif key in ("__education_start", "__education_end"):
+            val = _education_date(_a("education.start_date" if key == "__education_start" else "education.end_date"),
+                                  f.options or [])
         else:
             val = _a(f"screening.{key}").strip()
         if key == "previously_employed_here" and val.lower() == "auto":
