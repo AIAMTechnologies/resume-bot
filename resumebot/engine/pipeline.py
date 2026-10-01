@@ -34,7 +34,7 @@ from .questions import Answerer
 # Sources where the bot prepares everything and you click submit (never automated in a browser).
 ASSIST_SOURCES = {"linkedin"}
 # Company application portals: no account to protect, so the bot moves at a brisk human pace.
-BRISK_SOURCES = {"greenhouse", "lever", "ashby"}
+BRISK_SOURCES = {"greenhouse", "lever", "ashby", "smartrecruiters", "jazzhr", "workable", "recruitee"}
 
 
 # ---------------- discovery ----------------

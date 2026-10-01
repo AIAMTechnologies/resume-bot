@@ -34,7 +34,10 @@ def slug_candidates(company: str) -> list[str]:
 
 async def _board(client: httpx.AsyncClient, source: str, slug: str) -> list[JobData]:
     from .ats_boards import Ashby, Greenhouse, Lever
-    adapter = {"greenhouse": Greenhouse, "lever": Lever, "ashby": Ashby}[source]()
+    from .extra_boards import JazzHR, Recruitee, SmartRecruiters, Workable
+    adapter = {"greenhouse": Greenhouse, "lever": Lever, "ashby": Ashby,
+               "smartrecruiters": SmartRecruiters, "jazzhr": JazzHR,
+               "workable": Workable, "recruitee": Recruitee}[source]()
     try:
         return await adapter._fetch_board(client, slug)
     except Exception:  # noqa: BLE001 — 404s are the normal "not this slug" answer
@@ -59,7 +62,8 @@ async def locate(client: httpx.AsyncClient, job: JobData) -> JobData | None:
     if cached == "none":
         return None
     boards: list[tuple[str, str]] = [tuple(cached)] if cached else [
-        (src, slug) for slug in slug_candidates(job.company) for src in ("greenhouse", "ashby", "lever")]
+        (src, slug) for slug in slug_candidates(job.company)
+        for src in ("greenhouse", "ashby", "lever", "smartrecruiters", "workable", "recruitee", "jazzhr")]
     for source, slug in boards:
         jobs = await _board(client, source, slug)
         if not jobs:

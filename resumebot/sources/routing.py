@@ -41,6 +41,33 @@ def route(url: str) -> Route:
         m = re.search(r"^/([^/]+)/([0-9a-f-]{36})", path)
         if m:
             return Route("ashby", m.group(1), m.group(2), url)
+    # SmartRecruiters: careers.smartrecruiters.com/{slug}/{id} or jobs.smartrecruiters.com/...
+    if "smartrecruiters.com" in host:
+        m = re.search(r"^/([^/]+)/([^/]+)", path)
+        if m:
+            return Route("smartrecruiters", m.group(1), m.group(2), url)
+    # JazzHR: {slug}.applytojob.com/apply/{shortcode}
+    if host.endswith("applytojob.com"):
+        slug = host.split(".")[0]
+        m = re.search(r"/apply/([^/?]+)", path)
+        if m:
+            return Route("jazzhr", slug, m.group(1), url)
+        return Route("jazzhr", slug, "", url)
+    # Workable: apply.workable.com/{slug}/j/{shortcode}
+    if host.endswith("workable.com"):
+        m = re.search(r"^/([^/]+)/j/([^/]+)", path)
+        if m:
+            return Route("workable", m.group(1), m.group(2), url)
+        m = re.search(r"^/([^/]+)", path)
+        if m:
+            return Route("workable", m.group(1), "", url)
+    # Recruitee: {slug}.recruitee.com/o/{offer-slug}
+    if host.endswith("recruitee.com"):
+        slug = host.split(".")[0]
+        m = re.search(r"/o/([^/?]+)", path)
+        if m:
+            return Route("recruitee", slug, m.group(1), url)
+        return Route("recruitee", slug, "", url)
     if "myworkdayjobs.com" in host or "workday" in host:
         return Route("workday", host.split(".")[0], path.rsplit("/", 1)[-1], url)
     return Route("external", host, "", url)

@@ -58,7 +58,7 @@ def import_chrome_profile(profile: str) -> Path:
 
 
 # No account to protect on these, so applications may run side by side in separate tabs.
-OWN_TAB_SOURCES = {"greenhouse", "lever", "ashby"}
+OWN_TAB_SOURCES = {"greenhouse", "lever", "ashby", "smartrecruiters", "jazzhr", "workable", "recruitee"}
 
 
 class BrowserManager:

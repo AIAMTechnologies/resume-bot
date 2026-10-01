@@ -63,6 +63,18 @@ lever:
   - palantir
   - hive
   - outreach
+smartrecruiters:
+  # slug = companyIdentifier from careers.smartrecruiters.com/{slug}
+  []
+jazzhr:
+  # slug = subdomain from {slug}.applytojob.com
+  []
+workable:
+  # slug = subdomain from apply.workable.com/{slug}
+  []
+recruitee:
+  # slug = subdomain from {slug}.recruitee.com
+  []
 ashby:
   - workos
   - lightspeedhq
