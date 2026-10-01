@@ -84,7 +84,8 @@ class Targets(BaseModel):
     employment_types: list[str] = Field(default_factory=lambda: ["full_time"])
     exclude_title_keywords: list[str] = Field(default_factory=list)
     exclude_companies: list[str] = Field(default_factory=list)
-    min_salary_cad: int | None = None
+    min_salary_cad: int | None = None   # legacy name
+    min_salary: int | None = None       # skip jobs whose posted pay range tops out below this
 
 
 class Matching(BaseModel):

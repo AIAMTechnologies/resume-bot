@@ -17,6 +17,7 @@ targets:
   exclude_title_keywords: ["intern", "principal", "director", "vp "]
   exclude_companies: []
   min_salary_cad: null
+  min_salary: 100000   # skip jobs whose posted pay tops out below this (jobs without posted pay still pass)
 
 matching:
   auto_apply_score: 70     # >= this: apply automatically

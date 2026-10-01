@@ -201,6 +201,8 @@ def next_job(source_name: str) -> Job | None:
     for job in candidates:
         # Last check before submitting: jobs queued under older rules must still pass today's filters.
         ok, why = matcher.location_ok(job)
+        if ok:
+            ok, why = matcher.salary_ok(job)
         if not ok or any(k.lower() in job.title.lower() for k in settings().targets.exclude_title_keywords):
             job.status, job.status_reason = JobStatus.SKIPPED, f"no longer matches filters: {why if not ok else 'excluded title'}"
             db.save(job)

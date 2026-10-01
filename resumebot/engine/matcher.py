@@ -89,6 +89,13 @@ def title_ok(title: str, targets: list[str], keywords: list[str] | None = None) 
     return False
 
 
+def salary_ok(job: Job) -> tuple[bool, str]:
+    from .salary import below_floor
+    floor = settings().targets.min_salary or settings().targets.min_salary_cad
+    low, top = below_floor(job.salary, job.description, floor)
+    return (False, f"pay below ${floor:,} (posted up to ${top:,.0f})") if low else (True, "")
+
+
 def prefilter(job: Job) -> tuple[bool, str]:
     t = settings().targets
     low = job.title.lower()
@@ -103,6 +110,9 @@ def prefilter(job: Job) -> tuple[bool, str]:
         return False, "title not in targets"
     if job.source == "linkedin" and job.apply_url and not job.easy_apply:
         return False, "applies on company ATS (tracked there)"
+    ok, why = salary_ok(job)
+    if not ok:
+        return False, why
     ok, why = location_ok(job)
     if not ok:
         return False, why
