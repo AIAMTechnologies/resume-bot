@@ -241,16 +241,45 @@ Return {{"answer": "...", "grounded": true|false, "confidence": 0.0-1.0, "reason
     return str(result.get("answer", "")), bool(result.get("grounded")), float(result.get("confidence", 0))
 
 
+HEARD_RE = re.compile(r"how did you (hear|find|learn)|where did you (hear|find|learn)|source of (your )?application|referral source", re.I)
+# What to look for in the options, by where the bot actually found the job (truthful answer first).
+HEARD_PREFERENCES = {
+    "linkedin": [r"linkedin.*(job|post)", r"linkedin"],
+    "indeed": [r"indeed"],
+    "": [r"careers? (page|site|website)|company (web)?site|our website|corporate website",
+         r"job board|online job|job posting|internet|online"],
+}
+
+
+def heard_about(f: Field, source: str) -> str:
+    """'How did you hear about us?' → the option matching where the job was actually found."""
+    if not HEARD_RE.search(f.label):
+        return ""
+    prefs = HEARD_PREFERENCES.get(source, []) + HEARD_PREFERENCES[""] + [r"^other$"]
+    if not f.options:
+        return {"linkedin": "LinkedIn", "indeed": "Indeed"}.get(source, "Company careers page")
+    for pattern in prefs:
+        for option in f.options:
+            if re.search(pattern, option, re.I):
+                return option
+    return ""
+
+
 class Answerer:
     """Per-application answerer. Records every answer and where it came from."""
 
     def __init__(self, job_title: str, company: str, description: str, location: str = "",
-                 min_confidence: float = 0.8):
+                 min_confidence: float = 0.8, source: str = ""):
         self.job_title, self.company, self.description, self.location = job_title, company, description, location
+        self.source = source
         self.min_confidence = min_confidence
         self.log: dict[str, dict[str, str]] = {}
 
     async def __call__(self, f: Field) -> str:
+        heard = heard_about(f, self.source)
+        if heard:
+            self.log[f.label] = {"answer": heard, "origin": f"where the job was found ({self.source})"}
+            return heard
         if norm_q(f.label).startswith(("address line 2", "home address line 2", "apartment", "suite")) and \
                 not _a("contact.address_line2"):
             self.log[f.label] = {"answer": "", "origin": "left blank (optional)"}

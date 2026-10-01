@@ -395,7 +395,7 @@ async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None 
                       keyword_coverage=tr.report.keyword_coverage, status=AppStatus.FAILED)
     applied_note = ""
     started = time.monotonic()
-    answerer = Answerer(job.title, job.company, job.description, job.location)
+    answerer = Answerer(job.title, job.company, job.description, job.location, source=job.source)
     try:
         async with browsers.page(job.source) as page:
             human = Human(page, brisk=job.source in BRISK_SOURCES)

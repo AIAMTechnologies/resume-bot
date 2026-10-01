@@ -146,3 +146,15 @@ async def test_marketing_optin_and_optional_address_line2():
                             ["Yes", "No"])) == "No"
     ans = Answerer("Engineer", "Acme", "desc")
     assert await ans(Field("Home Address Line 2", "text", None, required=True)) == ""
+
+
+
+def test_how_did_you_hear_matches_where_the_job_was_found():
+    from resumebot.engine.questions import heard_about
+    opts = ["Blind App", "Datadog Employee", "Datadog's Careers Page", "Github", "LinkedIn (Datadog Page)",
+            "LinkedIn (Job Posting)", "School job board", "Other"]
+    q = Field("How did you hear about this opportunity?*", "select", opts)
+    assert heard_about(q, "greenhouse") == "Datadog's Careers Page"
+    assert heard_about(q, "linkedin") == "LinkedIn (Job Posting)"
+    assert heard_about(Field("How did you hear about us?", "select", ["Referral", "Other"]), "ashby") == "Other"
+    assert heard_about(Field("Why do you want to work here?"), "ashby") == ""
