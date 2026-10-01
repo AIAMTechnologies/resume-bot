@@ -87,7 +87,11 @@ Jobs page: a "❓ Answer N questions" notice opens the answer form inline.
 | Ashby "right to work basis" (BeyondTrust) | location-dependent: Canada → permanent; don't save as memory |
 
 ## Greenhouse email security code
-Fast back-to-back Greenhouse applies trigger "A verification code was sent to … enter the 8-character code to
+**Update 2026-10-01 evening:** even one apply per ~10 min got a code every time — Greenhouse now flags this
+browser on every application, so slowing down is not enough. **Hand-off:** when the code screen appears the bot
+brings the filled tab to the front, sends a Telegram ping, and waits 20 min (`HANDOFF_MINUTES`) for YOU to type
+the emailed code and click Submit; it records the submission when the confirmation page appears.
+Earlier: fast back-to-back Greenhouse applies trigger "A verification code was sent to … enter the 8-character code to
 confirm you're a human". That is bot detection — the bot does NOT read/enter it. Mitigation: Greenhouse runs ONE
 lane with 3–7 min gaps (SINGLE_LANE_SOURCES, settings greenhouse gaps). Jobs that hit it end "no confirmation;
 unknown state" and the screenshot shows the Security code boxes.

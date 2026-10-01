@@ -35,6 +35,10 @@ def _ts(value) -> datetime | None:
 
 
 
+# Portal asks for a code it emailed you "to confirm you're a human" (Greenhouse). You enter it, not the bot.
+SECURITY_CODE_RE = r"verification code was sent|enter the \d+.character code|security code"
+HANDOFF_MINUTES = 20
+
 COOKIE_DECLINE_RE = re.compile(r"^(necessary only|only necessary|reject( all)?|decline( all)?|deny|essential only|use necessary cookies only)$", re.I)
 
 
@@ -90,10 +94,32 @@ class _BoardSource(Source):
         await guards.check_page(ctx.page)
         if await page_has_text(ctx, success, timeout=25):
             return ApplyResult(True, "confirmation page seen")
+        if await page_has_text(ctx, SECURITY_CODE_RE, timeout=3):
+            return await self._wait_for_you(ctx, success)
         # Validation errors keep us on the form.
         errors = await ctx.page.locator("[class*=error i]:visible, [role=alert]:visible").all_inner_texts()
         errors = [e.strip() for e in errors if e.strip()]
         return ApplyResult(False, "no confirmation; " + ("; ".join(errors[:5]) if errors else "unknown state"))
+
+    async def _wait_for_you(self, ctx: ApplyContext, success: str) -> ApplyResult:
+        """The portal emailed a "confirm you're a human" code. That check is yours to complete: the bot
+        never reads or types the code. It leaves the filled form open, tells you, and waits."""
+        from ..notify import telegram
+        job = ctx.job
+        try:
+            await ctx.page.bring_to_front()
+        except Exception:  # noqa: BLE001
+            pass
+        db.log(f"🔐 Waiting for you: enter the emailed security code for {job.title} @ {job.company} "
+               f"in the open Chrome tab, then click Submit ({HANDOFF_MINUTES} min)",
+               level="warning", source=self.name, kind="apply", job_id=job.id)
+        await telegram.send(
+            f"🔐 <b>{job.company}</b> — {job.title}\n{self.name.title()} emailed a security code to your application "
+            f"Gmail. The form is filled and open in Chrome on your Mac: type the code there and click "
+            f"<b>Submit application</b>. I'll wait {HANDOFF_MINUTES} minutes.")
+        if await page_has_text(ctx, success, timeout=HANDOFF_MINUTES * 60):
+            return ApplyResult(True, "submitted after you entered the security code")
+        return ApplyResult(False, f"security code not entered within {HANDOFF_MINUTES} min")
 
 
 class Greenhouse(_BoardSource):
