@@ -14,7 +14,7 @@ from resumebot.models import Job
 def api_env(monkeypatch):
     base = config.env()
     monkeypatch.setattr(config, "env", lambda: base.model_copy(update={
-        "llm_backend": "anthropic_api", "anthropic_api_key": "sk-test",
+        "llm_backend": "anthropic_api", "llm_fallback": "", "anthropic_api_key": "sk-test",
         "llm_model": "claude-sonnet-5-5", "llm_fast_model": "claude-haiku-4-5"}))
     for mod in ("resumebot.llm", "resumebot.llm.anthropic_api"):
         monkeypatch.setattr(f"{mod}.env", config.env)

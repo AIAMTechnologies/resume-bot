@@ -22,19 +22,23 @@ def get_llm(fast: bool = False) -> LLM:
 @lru_cache
 def _llm(fast: bool) -> LLM:
     model = (env().llm_fast_model if fast else "") or env().llm_model
-    backend = env().llm_backend
-    if backend == "codex_cli":
-        from .codex_cli import CodexCLI
-        return CodexCLI()
-    if backend == "anthropic_api":
-        from .anthropic_api import AnthropicAPI
-        return AnthropicAPI(model)
-    from .claude_cli import ClaudeCLI
-    primary = ClaudeCLI(model=model)
-    if env().llm_fallback == "codex_cli":
-        from .codex_cli import CodexCLI
+    def make(name: str) -> LLM:
+        if name == "codex_cli":
+            from .codex_cli import CodexCLI
+            return CodexCLI()
+        if name == "anthropic_api":
+            from .anthropic_api import AnthropicAPI
+            return AnthropicAPI(model)
+        from .claude_cli import ClaudeCLI
+        return ClaudeCLI(model=model)
+
+    primary_name = env().llm_backend or "claude_cli"
+    fallback_name = env().llm_fallback
+    primary = make(primary_name)
+    if fallback_name and fallback_name != primary_name:
         from .fallback import FallbackLLM
-        return FallbackLLM(primary, CodexCLI())
+        # Two-way: whichever plan runs out, the other takes over (and back again).
+        return FallbackLLM(primary, make(fallback_name))
     return primary
 
 

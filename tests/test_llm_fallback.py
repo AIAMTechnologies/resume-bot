@@ -70,3 +70,43 @@ async def test_claude_error_extracts_useful_limit_message(monkeypatch):
     monkeypatch.setattr(claude_cli.asyncio, 'create_subprocess_exec', spawn)
     with pytest.raises(LLMError, match='Session limit reached'):
         await backend.complete('hello')
+
+
+
+async def test_switches_both_ways_when_each_plan_runs_out():
+    class Plan:
+        def __init__(self, name):
+            self.name, self.out, self.calls = name, False, 0
+        async def complete(self, *args, **kwargs):
+            self.calls += 1
+            if self.out:
+                raise LLMError(f"{self.name} allowance exhausted")
+            return self.name
+    claude, codex = Plan("claude"), Plan("codex")
+    llm = FallbackLLM(claude, codex)
+    assert await llm.complete("a") == "claude"
+    claude.out = True
+    assert await llm.complete("b") == "codex"          # Claude out -> Codex
+    codex.out, claude.out = True, False               # Codex runs out, Claude has reset
+    assert await llm.complete("c") == "claude"         # Codex out -> back to Claude, despite its cool-down
+    codex.out = False
+    claude.out = True
+    assert await llm.complete("d") == "codex"          # and over again
+    claude.out = codex.out = True
+    with pytest.raises(LLMError):
+        await llm.complete("e")                        # only fails when both are out
+
+
+def test_either_plan_can_be_primary(monkeypatch):
+    from types import SimpleNamespace
+    from resumebot import llm
+    from resumebot.llm.claude_cli import ClaudeCLI
+    from resumebot.llm.codex_cli import CodexCLI
+    monkeypatch.setattr(llm, "env", lambda: SimpleNamespace(llm_backend="codex_cli", llm_fallback="claude_cli",
+                                                            llm_model="m", llm_fast_model=""))
+    llm._llm.cache_clear()
+    try:
+        chain = llm.get_llm()
+        assert isinstance(chain.backends[0], CodexCLI) and isinstance(chain.backends[1], ClaudeCLI)
+    finally:
+        llm._llm.cache_clear()
