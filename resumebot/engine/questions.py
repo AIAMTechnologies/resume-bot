@@ -33,6 +33,7 @@ class Field:
     kind: str = "text"       # text | email | tel | url | number | textarea | select | radio | checkbox | file | date
     options: list[str] | None = None
     required: bool = False
+    selector: str = ""       # stable CSS selector of the input, when the form gives one
 
 
 def norm_q(q: str) -> str:
@@ -59,14 +60,15 @@ RULES: list[tuple[str, str]] = [
     (r"linkedin", "contact.linkedin"),
     (r"github", "contact.github"),
     (r"portfolio|personal (web)?site|website", "__website"),
-    (r"(receive|subscribe|sign up for|opt.?in).{0,40}(marketing|newsletter|promotional|updates about careers)|marketing communications|(receive|consent to).{0,40}(text messages?|sms)", "__no_marketing"),
+    (r"(receive|subscribe|sign up for|opt.?in).{0,40}(marketing|newsletter|promotional|updates about careers)|marketing communications|(receive|consent to).{0,40}(text messages?|sms)|opt.?in .{0,40}whatsapp", "__no_marketing"),
+    (r"countr(y|ies) you (anticipate|expect|plan to|will be) work", "__work_country"),
     (r"address line 2|apartment|suite|unit number", "__address_line2"),
     (r"address line 1|street address|^address$|mailing address|home address", "contact.address"),
     (r"languages? .{0,20}(speak|fluent)|fluent.{0,20}languages?|what languages", "__languages"),
     (r"(i )?(have read|agree|consent|acknowledge|understand).{0,120}(privacy|policy|guidelines|terms|notice|processing)", "__consent"),
     (r"postal|zip", "contact.postal_code"),
     (r"^city|current city|^(current )?location( city)?$|what city|city of residence|where do you (currently )?(live|reside)", "contact.city"),
-    (r"where are you (currently )?(located|based)|^(current )?location of residence|where (are you|do you) (currently )?(located|based|live)|^current (city|location)|where (do|will) you plan (on|to) (work|working) from", "__city_region"),
+    (r"where are you (currently )?(located|based)|^(current )?location of residence|location where you (permanently )?reside|where (are you|do you) (currently )?(located|based|live)|^current (city|location)|where (do|will) you plan (on|to) (work|working) from", "__city_region"),
     (r"province|\bstate\b", "contact.province_state"),
     (r"^country", "contact.country"),
     (r"sponsor", "__sponsorship"),
@@ -110,6 +112,8 @@ def _special(key: str, question: str, job_location: str) -> str:
         return ", ".join(langs) if isinstance(langs, list) else str(langs)
     if key == "__consent":  # same permission as consent checkboxes (answers.yaml: application_consent)
         return "Yes" if answers().get("application_consent") else ""
+    if key == "__work_country":  # where the job is, not where you are
+        return "United States" if us else _a("contact.country")
     if key == "__city_region":
         return ", ".join(x for x in [_a("contact.city"), _a("contact.province_state")] if x)
     if key == "__full_name":
@@ -128,6 +132,7 @@ def _special(key: str, question: str, job_location: str) -> str:
 # wins. A blank answer stops and asks you — these facts are never guessed by the AI.
 SCREENING_RULES: list[tuple[str, str]] = [
     (r"arbitration", "agree_to_arbitration"),
+    (r"confidential(ity)? (information|agreement)|non disclosure|\bnda\b", "confidentiality_agreement"),
     (r"background (check|screening)s? .{0,80}third.party|third.party .{0,80}background|strider", "third_party_background_screening"),
     (r"close relative of a government official|relative of a (government|public) official", "relative_of_government_official"),
     (r"(current|former) (government|public) official|government official in the last", "government_official"),
@@ -151,7 +156,7 @@ SCREENING_RULES: list[tuple[str, str]] = [
     (r"^school( name)?$|^(university|college|institution)( name)?$|school you attended", "__school"),
     (r"^discipline$|field of study|^major$|area of study", "__discipline"),
 ]
-AGREEMENT_KEYS = {"agree_to_arbitration", "third_party_background_screening", "ai_policy_agreement"}
+AGREEMENT_KEYS = {"agree_to_arbitration", "confidentiality_agreement", "third_party_background_screening", "ai_policy_agreement"}
 NONE_OPTION_RE = re.compile(r"^(n/?a|none|not applicable)\b|^no\b|do not hold|don.t hold", re.I)
 
 

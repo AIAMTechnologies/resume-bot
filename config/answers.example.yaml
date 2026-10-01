@@ -103,6 +103,8 @@ screening:
   # LEGAL — these sign something on your behalf. "Yes" = agree on every form; "No" = skip those jobs.
   # "Agree to be bound by the Candidate/Applicant Arbitration Agreement"  (OpenAI ×17, Roblox ×2)
   agree_to_arbitration: ""
+  # Candidate confidentiality / NDA ("Zscaler Confidential Information: I Agree")
+  confidentiality_agreement: ""
   # "Consent to a third party (e.g. Strider Technologies) running background/risk screening"  (Gemini)
   third_party_background_screening: ""
 

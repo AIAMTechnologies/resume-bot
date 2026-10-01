@@ -96,7 +96,8 @@ SCAN_JS = r"""
       label: labelFor(el), required: isReq(el),
       value: el.type === 'checkbox' ? String(el.checked)
         : el.tagName === 'SELECT' ? (isPlaceholder(el.options[el.selectedIndex]) ? '' : el.value) : (el.value || ''),
-      role: el.getAttribute('role') || '', name: el.name || '', accept: el.getAttribute('accept') || '', selector: stableSelector(el) };
+      role: el.getAttribute('role') || '', name: el.name || '', accept: el.getAttribute('accept') || '', selector: stableSelector(el),
+      group: type === 'checkbox' ? groupLabel(el) : '' };
     if (el.tagName === 'SELECT') f.options = [...el.options].filter(o => !isPlaceholder(o)).map(o => o.text.trim());
     if (f.role === 'combobox' || el.getAttribute('aria-autocomplete') === 'list') f.kind = 'combobox';
     out.push(f);
@@ -140,7 +141,8 @@ SCAN_JS = r"""
 
 CONSENT_RE = re.compile(r"(i )?(agree|consent|acknowledge|certify|confirm).{0,80}(privacy|terms|policy|accurate|true|processing|data)", re.I)
 # Signing away legal rights is never implied by "application consent": you decide each one.
-LEGAL_WAIVER_RE = re.compile(r"arbitration|class.action|jury trial|waive|non-?compete|bound by the terms", re.I)
+LEGAL_WAIVER_RE = re.compile(r"arbitration|class.action|jury trial|waive|non-?compete|bound by the terms|"
+                             r"confidential(ity)? (information|agreement)|non.?disclosure|\bnda\b", re.I)
 SKIP_CHECKBOX_RE = re.compile(r"follow|newsletter|marketing|job alerts?|subscribe|updates", re.I)
 
 
@@ -302,6 +304,10 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
                 loc = _locator(ctx, f)
                 if kind == "checkbox":
                     checked = f.get("value") == "true"
+                    # A bare "I Agree" box: what you'd be agreeing to is in its heading.
+                    group = (f.get("group") or "").rstrip("* ").strip()
+                    if group and len(label) < 40 and group.lower() not in label.lower():
+                        label = f"{group}: {label}"
                     if SKIP_CHECKBOX_RE.search(label):
                         if checked:
                             await ctx.human.click(await _clickable(ctx, loc))  # un-follow / un-subscribe
