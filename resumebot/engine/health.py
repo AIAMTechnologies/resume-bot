@@ -120,12 +120,25 @@ def _company_of(row: Diagnostic) -> str:
 
 
 def _source_of(row: Diagnostic) -> str:
-    m = re.search(r"pausing (\w+) until|^(\w+) session is logged out|⚠️ (\w+)", row.message)
-    return next((g for g in (m.groups() if m else []) if g), "") if m else ""
+    # In "⚠️ <kind> — pausing <source> until …" the source comes after the kind, so try the
+    # specific shapes in order rather than taking the leftmost match.
+    for rx in (r"pausing (\w+) until", r"^(\w+) session is logged out", r"⚠️ (\w+)"):
+        m = re.search(rx, row.message)
+        if m:
+            return m.group(1)
+    return ""
+
+
+def _board_of(row: Diagnostic) -> str:
+    """'<source>:<slug>' from "<source> board '<slug>' …" (discovery logs name the source first)."""
+    m = re.search(r"(?:(\w+) )?board '([^']+)'", row.message, re.I)
+    return f"{(m.group(1) or '').lower()}:{m.group(2)}" if m else ""
 
 
 def _act_skip_board(pattern: ErrorPattern, rows: list[Diagnostic]) -> str:
     source, slug = pattern.key.split(":", 2)[1:]
+    if not source:
+        raise ValueError("the log line does not name the source")
     skip_board(source, slug, days=7, reason=pattern.example[:120])
     return f"Skipping board '{slug}' on {source} for 7 days (fix or remove it in config/companies.yaml)."
 
@@ -147,10 +160,10 @@ def _act_slow_down(pattern: ErrorPattern, rows: list[Diagnostic]) -> str:
 REMEDIES: list[Remedy] = [
     Remedy("board_dead", r"board '(?P<slug>[^']+)' returned (404|410)", 2, "auto",
            "The board slug no longer exists. Fix or remove it in config/companies.yaml.", kinds=("discover",),
-           entity=lambda row: re.search(r"board '([^']+)'", row.message, re.I).group(1), action=_act_skip_board),
+           entity=_board_of, action=_act_skip_board),
     Remedy("board_error", r"board '(?P<slug>[^']+)' (failed|returned \d+)", 4, "auto",
            "This board keeps failing. Check the slug and whether the company still uses this ATS.", kinds=("discover",),
-           entity=lambda row: re.search(r"board '([^']+)'", row.message, re.I).group(1), action=_act_skip_board),
+           entity=_board_of, action=_act_skip_board),
     Remedy("company_form", r"^(not submitted|apply error)", 2, "auto",
            "Open one of the failed attempts, look at the screenshot, and apply by hand if the form needs "
            "something the bot can't do.", kinds=("apply",), entity=_company_of, action=_act_route_manual,

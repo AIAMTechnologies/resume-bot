@@ -126,6 +126,40 @@ are not logged; configured credentials and common token patterns are redacted.
 Logs stay local under the Git-ignored `data/` directory. Capture begins when this
 version starts; older activity remains in the overview feed.
 
+### Recurring problems and automatic remedies
+
+The **Recurring problems** card at the top of the error log groups repeated errors into
+patterns (every 5 minutes while the bot runs, and whenever you open the page). The bot fixes
+the shapes it knows and lists the rest:
+
+| Problem | Remedy | Lasts |
+|---|---|---|
+| A company board returns 404/410 twice (or fails 4 times) | Discovery skips that board; fix or remove the slug in `config/companies.yaml` | 7 days |
+| Applications to one company fail twice the same way | That company's applications are prepared for you to submit instead | 30 days |
+| A source hits a bot check twice | Gaps between actions on that source grow 1.5× (up to 3×); the challenge cooldown still applies | 7 days |
+| Claude CLI missing, a source logged out, Gmail or Telegram errors | Marked **needs you** with what to do, and sent to Telegram once | until fixed |
+| An error with no known remedy recurs 3 times | One Telegram alert; open the error log for the traceback | — |
+
+Remedies expire on their own, so nothing needs resetting. **Resolved** closes a pattern;
+it reopens if the error comes back. The same list is available as `resumebot errors`
+(`--resolved` includes closed ones) and as `/errors` in Telegram, and the daily summary
+mentions open problems.
+
+### Retries
+
+Scoring that fails 3 times parks the job in Review with the error (use **Score now** to retry).
+Tailoring and form failures before the submit click are retried once after 10 minutes. After
+the submit click, a validation error marks the job Failed; an unclear result moves it to Review
+as "possibly submitted" and Telegram asks you to **Check this one** with the screenshot, so a
+job is never submitted twice.
+
+### Learning from submissions
+
+After a successful submit, AI answers to closed (multiple-choice) questions are remembered and
+reused on later forms. Answers you give during review always win: the AI never overwrites them.
+`matching.screen_concurrency` (default 3, in `config/settings.yaml`) sets how many jobs the AI
+scores at once; all of a form's unanswered questions go to the AI in one call.
+
 ## Live automation visibility
 
 The Applications page now includes a live panel that refreshes every five seconds:

@@ -70,3 +70,13 @@ branch checked out) to continue. Everything below it is context.
 - `questions.from_memory` loads every learned answer per field; fine today, index/cached lookup if memory grows past a few thousand rows.
 - `Indeed.apply` fills with `fill_form(ctx, "main, form, body")`; a prefetch happens per step, which is right, but Indeed pages are the most likely place for the generic button-choice scanner to mis-group; watch `Error log` for "Yes/No question".
 - The error log lives only on the Mac (`data/` is git-ignored), so a cloud Claude session cannot watch it. Continuous monitoring is done in-app by `health_loop`; for a deeper pass, run `resumebot errors` or export `/errors/export` and paste it into a local Claude Code session.
+
+## Session 2 (steps 1–5 above done)
+
+- Fixed the order-dependent `test_speed` failure (fixture + clearing answers other tests taught the bot).
+- `tests/test_health.py` (17 tests). Writing them found two remedy bugs, now fixed: the dead-board
+  remedy always failed (discovery logs didn't name the source; they now say `<source> board '<slug>' …`),
+  and the challenge remedy slowed down the challenge kind ("captcha") instead of the source.
+- Browser scenarios 9/9 green on the Mac; `test_s1` expects "Company careers page".
+- README: recurring problems and remedies, retries, learning from submissions.
+- The branch is behind `main` by 5 commits (43168fe…d4dbe1a); merge before opening a PR.

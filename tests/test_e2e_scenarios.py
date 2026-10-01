@@ -389,7 +389,7 @@ async def test_s1_greenhouse_discover_to_submitted(world, monkeypatch):
     assert sub["question_auth"] == "Yes" and sub["question_sponsor"] == "No"
     assert "Splunk" in sub["question_why"]
     assert sub["question_linkedin"] == "https://linkedin.com/in/samrivera"
-    assert sub["question_hear"] == "Job board"
+    assert sub["question_hear"] == "Company careers page"  # board-discovered jobs name where they were found (c4d7f25)
     assert sub["gender"] == "Decline To Self Identify"
     assert sub["veteran_status"] == "I don't wish to answer"
     assert sub["consent"] is True

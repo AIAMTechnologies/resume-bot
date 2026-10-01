@@ -3,10 +3,22 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from sqlmodel import delete
 
+from resumebot import db
 from resumebot.engine import pipeline, questions
 from resumebot.engine.questions import Answerer, Field
+from resumebot.models import LearnedAnswer
 from resumebot.sources import http
+
+
+@pytest.fixture(autouse=True)
+def patch_answers(monkeypatch):
+    from resumebot import config
+    monkeypatch.setattr(questions, "answers", config.answers)
+    with db.session() as s:  # answers other tests taught the bot would bypass the AI batch
+        s.exec(delete(LearnedAnswer))
+        s.commit()
 
 
 async def test_prefetch_batches_unknown_questions_by_model(monkeypatch):

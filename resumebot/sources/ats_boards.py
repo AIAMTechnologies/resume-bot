@@ -53,10 +53,10 @@ class _BoardSource(Source):
                 try:
                     return await self._fetch_board(client, slug)
                 except httpx.HTTPStatusError as e:
-                    db.log(f"Board '{slug}' returned {e.response.status_code} — check the slug in "
+                    db.log(f"{self.name} board '{slug}' returned {e.response.status_code} — check the slug in "
                            f"config/companies.yaml", level="warning", source=self.name, kind="discover")
                 except Exception as e:  # noqa: BLE001
-                    db.log(f"Board '{slug}' failed: {e}", level="warning", source=self.name, kind="discover")
+                    db.log(f"{self.name} board '{slug}' failed: {e}", level="warning", source=self.name, kind="discover")
                 return []
 
         out: list[JobData] = []
