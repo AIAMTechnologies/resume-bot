@@ -319,8 +319,12 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
                     if not answer:
                         continue
                     # Checkbox groups can take several answers ("English, Urdu").
-                    picks = [p.strip() for p in answer.split(", ")] if kind == "checkgroup" else [answer]
-                    picks = [p for p in picks if p in f["options"]]
+                    if kind == "checkgroup":
+                        # Options can contain commas themselves, so look for whole options in the answer first.
+                        picks = [o for o in f["options"] if o and o in answer] or \
+                            [p.strip() for p in answer.split(", ") if p.strip() in f["options"]]
+                    else:
+                        picks = [answer] if answer in f["options"] else []
                     if not picks:
                         raise NeedsHuman(label, answer, f["options"])
                     for pick in picks:
