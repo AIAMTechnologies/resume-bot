@@ -14,7 +14,8 @@ targets:
   employment_types: ["full_time", "contract"]
   # Titles containing any of these are always scored by the AI (it judges fit better than titles do).
   title_keywords: [security, cyber, soc, incident, threat, iam, identity, grc, siem, dfir, infosec, detection, vulnerability, risk, automation, csirt, cirt, forensic, forensics, malware, penetration, pentest, red team, blue team, appsec, devsecops, privacy, compliance, governance, trust, machine learning, ml, mlops, llm, applied ai, ai engineer, ai/ml, forward deployed, genai, generative ai]
-  exclude_title_keywords: ["intern", "principal", "director", "vp "]
+  # Entry-level titles rarely pay $100k+ even when no salary is posted.
+  exclude_title_keywords: ["intern", "principal", "director", "vp ", "tier 1", "tier i ", "tier i)", "l1 ", "(l1)", "level 1", "level i ", "new grad", "junior", "jr ", "jr.", "entry level", "entry-level", "apprentice", "co-op", "support specialist"]
   exclude_companies: []
   min_salary_cad: null
   min_salary: 100000   # skip jobs whose posted pay tops out below this (jobs without posted pay still pass)
