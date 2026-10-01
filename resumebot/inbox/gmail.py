@@ -113,11 +113,35 @@ async def classify(subject: str, body: str) -> tuple[str, str]:
     return (status if status in RANK else "other"), result.get("summary", "")
 
 
-async def _process(sender: str, subject: str, body: str) -> None:
+def _rule_class(subject: str, body: str) -> str:
+    hits = [status for status, rx in RULES if rx.search(f"{subject}\n{body}")]
+    return hits[0] if len(hits) == 1 else (AppStatus.REJECTED if AppStatus.REJECTED in hits else "other")
+
+
+def _store(key: str, received_at, sender: str, subject: str, body: str, status: str, summary: str,
+           app: Application | None) -> bool:
+    """Save the email for the Emails tab. Returns False if it was already stored."""
+    from ..models import Email
+    with db.session() as s:
+        if s.exec(select(Email).where(Email.message_key == key)).first():
+            return False
+        s.add(Email(message_key=key, received_at=received_at or utcnow(), sender=sender[:300], subject=subject[:500],
+                    snippet=body[:1500], classification=status, summary=summary[:300],
+                    application_id=app.id if app else None, job_id=app.job_id if app else None,
+                    company=app.company if app else ""))
+        s.commit()
+    return True
+
+
+async def _process(sender: str, subject: str, body: str, key: str = "", received_at=None) -> None:
     app = match_application(sender, subject, body)
+    key = key or f"{sender}|{subject}|{body[:200]}"
     if not app:
+        _store(key, received_at, sender, subject, body, _rule_class(subject, body), "", None)  # no AI cost
         return
     status, summary = await classify(subject, body)
+    if not _store(key, received_at, sender, subject, body, status, summary, app):
+        return  # already processed (backfill or repeat poll)
     if status == "other" or RANK.get(status, 0) < RANK.get(app.status, 0):
         return
     app.status = status
@@ -130,6 +154,29 @@ async def _process(sender: str, subject: str, body: str) -> None:
     if status in (AppStatus.INTERVIEW, AppStatus.ASSESSMENT, AppStatus.OFFER):
         await telegram.send(f"🎉 <b>{esc(status.title())}</b> — {esc(app.title)} at {esc(app.company)}\n"
                             f"<i>{esc(subject)}</i>")
+
+
+def _from_ms(ms: int):
+    from datetime import datetime, timezone
+    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+
+
+async def backfill(days: int = 30) -> int:
+    """Load the last N days of the inbox into the Emails tab (and update statuses)."""
+    import time
+    from . import gmail_api
+    before = _count_emails()
+    since = int((time.time() - days * 86400) * 1000)
+    for ts, sender, subject, body in await asyncio.to_thread(gmail_api.fetch_since, since, 200):
+        await _process(sender, subject, body, key=f"gmail:{ts}:{subject[:80]}", received_at=_from_ms(ts))
+    return _count_emails() - before
+
+
+def _count_emails() -> int:
+    from sqlmodel import func
+    from ..models import Email
+    with db.session() as s:
+        return s.exec(select(func.count()).select_from(Email)).one()
 
 
 async def check_inbox() -> None:
@@ -156,7 +203,7 @@ async def _check_api(gmail_api) -> None:
         db.log("Inbox tracker connected (Gmail API)", kind="inbox", level="success")
         return
     for ts, sender, subject, body in await asyncio.to_thread(gmail_api.fetch_since, last_ts):
-        await _process(sender, subject, body)
+        await _process(sender, subject, body, key=f"gmail:{ts}:{subject[:80]}", received_at=_from_ms(ts))
         db.kv_set("gmail_last_ts", ts)
 
 
@@ -170,5 +217,5 @@ async def _check_imap() -> None:
         return
     msgs = await asyncio.to_thread(fetch_new, last_uid)
     for uid, sender, subject, body in msgs:
-        await _process(sender, subject, body)
+        await _process(sender, subject, body, key=f"imap:{uid}")
         db.kv_set("gmail_last_uid", uid)

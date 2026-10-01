@@ -113,11 +113,15 @@ async def charts(days: int = 30):
 
 
 @app.get("/applications", response_class=HTMLResponse)
-async def applications(request: Request, source: str = "", status: str = "", q: str = ""):
-    apps = stats.recent_applications(500, source=source, status=status, q=q)
+async def applications(request: Request, source: str = "", status: str = "", q: str = "", when: str = "",
+                       submitted: str = ""):
+    apps = stats.recent_applications(500, source=source, status=status, q=q, today_only=when == "today",
+                                     week_only=when == "week", submitted_only=bool(submitted) or bool(when))
     with db.session() as s:
         jobs = {j.id: j for j in s.exec(db.select(Job).where(Job.id.in_([a.job_id for a in apps])))}
-    return page(request, "applications.html", apps=apps, jobs=jobs, automation=stats.automation(), f={"source": source, "status": status, "q": q})
+    title = {"today": "Applied today", "week": "Applied this week"}.get(when) or ("All submitted applications" if submitted else "")
+    return page(request, "applications.html", apps=apps, jobs=jobs, automation=stats.automation(),
+                f={"source": source, "status": status, "q": q, "when": when, "submitted": submitted}, list_title=title)
 
 
 @app.get("/applications/{app_id}", response_class=HTMLResponse)
@@ -129,7 +133,8 @@ async def application_detail(request: Request, app_id: int):
         job = s.get(Job, a.job_id)
         events = list(s.exec(db.select(db.models.Event).where(db.models.Event.job_id == a.job_id)
                              .order_by(db.models.Event.ts)))
-    return page(request, "application.html", a=a, job=job, events=events, active="applications")
+    return page(request, "application.html", a=a, job=job, events=events, active="applications",
+                emails=stats.application_emails(app_id))
 
 
 @app.post("/applications/{app_id}/status")
@@ -140,6 +145,23 @@ async def set_app_status(request: Request, app_id: int, status: str = Form(...))
         raise HTTPException(error.status_code, str(error))
     except outcomes.OutcomeError as error:
         return back(request, err=str(error))
+
+
+@app.get("/emails", response_class=HTMLResponse)
+async def emails_page(request: Request, classification: str = "", matched: str = "", q: str = ""):
+    rows = stats.emails(classification, matched, q)
+    with db.session() as s:
+        apps = {a.id: a for a in s.exec(db.select(Application).where(
+            Application.id.in_([e.application_id for e in rows if e.application_id])))}
+    return page(request, "emails.html", emails=rows, apps=apps, counts=stats.email_counts(),
+                f={"classification": classification, "matched": matched, "q": q})
+
+
+@app.post("/emails/backfill")
+async def emails_backfill(request: Request, days: int = Form(30)):
+    from ..inbox import gmail
+    background(gmail.backfill(days))
+    return back(request, "/emails", msg=f"Loading the last {days} days of email — refresh in a minute.")
 
 
 @app.get("/jobs", response_class=HTMLResponse)

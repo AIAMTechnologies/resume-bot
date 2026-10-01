@@ -1,7 +1,7 @@
-<div class="card kpi"><div class="v">{{ s.today }}</div><div class="l">Applied today</div><div class="d">{{ s.week }} this week</div></div>
-<div class="card kpi"><div class="v">{{ s.total }}</div><div class="l">Total applications</div><div class="d">{{ s.failed }} failed attempts</div></div>
-<div class="card kpi"><div class="v">{{ s.response_rate }}%</div><div class="l">Response rate</div><div class="d">{{ s.responses }} replies</div></div>
-<div class="card kpi"><div class="v">{{ s.interviews }}</div><div class="l">Interviews / offers</div><div class="d">from inbox tracking</div></div>
-<div class="card kpi"><div class="v">{{ s.queued }}</div><div class="l">Queued to apply</div><div class="d">{{ s.discovered }} discovered</div></div>
-<div class="card kpi"><div class="v">{{ s.pending_reviews }}</div><div class="l">Need your input</div><div class="d">{{ s.manual }} manual applies</div></div>
+<a class="card kpi link" href="/applications?when=today"><div class="v">{{ s.today }}</div><div class="l">Applied today</div><div class="d">{{ s.week }} this week · see list →</div></a>
+<a class="card kpi link" href="/applications?submitted=1"><div class="v">{{ s.total }}</div><div class="l">Total applications</div><div class="d">{{ s.failed }} failed attempts · see list →</div></a>
+<a class="card kpi link" href="/emails?matched=yes"><div class="v">{{ s.response_rate }}%</div><div class="l">Response rate</div><div class="d">{{ s.responses }} replies · see emails →</div></a>
+<a class="card kpi link" href="/applications?status=interview"><div class="v">{{ s.interviews }}</div><div class="l">Interviews / offers</div><div class="d">from inbox tracking</div></a>
+<a class="card kpi link" href="/jobs?status=queued"><div class="v">{{ s.queued }}</div><div class="l">Queued to apply</div><div class="d">{{ s.discovered }} discovered</div></a>
+<a class="card kpi link" href="/review"><div class="v">{{ s.pending_reviews }}</div><div class="l">Need your input</div><div class="d">{{ s.manual }} manual applies</div></a>
 <div class="card kpi"><div class="v">{{ s.avg_match }}</div><div class="l">Avg match score</div><div class="d">ATS avg {{ s.avg_ats }}</div></div>

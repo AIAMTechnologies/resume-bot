@@ -185,6 +185,14 @@ def telegram_chat_id():
         console.print(f"TELEGRAM_CHAT_ID={cid}   ({who})")
 
 
+@app.command("inbox-backfill")
+def inbox_backfill(days: int = typer.Option(30, help="How many days back to load")):
+    """Load past replies into the Emails tab (and update application statuses)."""
+    from .inbox import gmail
+    _boot()
+    console.print(f"[green]{asyncio.run(gmail.backfill(days))} email(s) added[/]")
+
+
 @app.command("gmail-auth")
 def gmail_auth(client_file: Path = typer.Argument(None, help="OAuth client JSON downloaded from Google Cloud")):
     """Connect the application Gmail with Google sign-in (read-only). Run once."""

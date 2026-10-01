@@ -118,11 +118,15 @@ def skip_reasons(limit: int = 8) -> list[tuple[str, int]]:
 
 
 def recent_applications(limit: int = 50, today_only: bool = False, source: str = "", status: str = "",
-                        q: str = "") -> list[Application]:
+                        q: str = "", submitted_only: bool = False, week_only: bool = False) -> list[Application]:
     with db.session() as s:
         stmt = select(Application).order_by(Application.started_at.desc())
         if today_only:
             stmt = stmt.where(Application.submitted_at >= local_day_start_utc())
+        if week_only:
+            stmt = stmt.where(Application.submitted_at >= local_day_start_utc() - timedelta(days=6))
+        if submitted_only:
+            stmt = stmt.where(Application.submitted_at.is_not(None))
         if source:
             stmt = stmt.where(Application.source == source)
         if status:
@@ -203,3 +207,33 @@ def automation() -> dict:
             'now': now, 'timezone': cfg.timezone, 'counts': counts, 'sources': health,
             'workers': workers, 'live': any(w['name'] == 'triage' and w['phase'] not in ('stopped','failed') for w in workers),
             'queue': queue, 'events': recent_events(8)}
+
+
+def emails(classification: str = "", matched: str = "", q: str = "", limit: int = 300):
+    from ..models import Email
+    with db.session() as s:
+        stmt = select(Email).order_by(Email.received_at.desc())
+        if classification:
+            stmt = stmt.where(Email.classification == classification)
+        if matched == "yes":
+            stmt = stmt.where(Email.application_id.is_not(None))
+        elif matched == "no":
+            stmt = stmt.where(Email.application_id.is_(None))
+        if q:
+            like = f"%{q}%"
+            stmt = stmt.where(Email.subject.ilike(like) | Email.sender.ilike(like) | Email.company.ilike(like))
+        return list(s.exec(stmt.limit(limit)))
+
+
+def email_counts() -> dict:
+    from ..models import Email
+    with db.session() as s:
+        rows = s.exec(select(Email.classification, func.count()).where(Email.application_id.is_not(None))
+                      .group_by(Email.classification)).all()
+    return dict(rows)
+
+
+def application_emails(app_id: int):
+    from ..models import Email
+    with db.session() as s:
+        return list(s.exec(select(Email).where(Email.application_id == app_id).order_by(Email.received_at.desc())))

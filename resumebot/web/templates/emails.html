@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+  <h1 style="margin:0">Emails <span class="muted small">({{ emails|length }})</span></h1>
+  <form method="post" action="/emails/backfill" class="inline">
+    <input type="hidden" name="days" value="30"><button class="btn sm">Load last 30 days</button></form>
+</div>
+<p class="muted small">Replies to your application inbox, matched to the application they're about. Status updates (rejected, interview…) are applied to the application automatically.</p>
+<div class="kpis">
+  {% for key, label, emoji in [('confirmed','Confirmations','📨'),('rejected','Rejections','❌'),('assessment','Assessments','📝'),('interview','Interviews','🎤'),('offer','Offers','🎉')] %}
+  <a class="card kpi link" href="/emails?classification={{ key }}"><div class="v">{{ counts.get(key, 0) }}</div><div class="l">{{ emoji }} {{ label }}</div></a>
+  {% endfor %}
+</div>
+<form class="filters" method="get">
+  <input type="search" name="q" placeholder="Subject, sender or company" value="{{ f.q }}">
+  <select name="classification"><option value="">All types</option>
+    {% for c in ['confirmed','rejected','assessment','interview','offer','other'] %}<option {{ 'selected' if f.classification == c }}>{{ c }}</option>{% endfor %}</select>
+  <select name="matched"><option value="">All emails</option><option value="yes" {{ 'selected' if f.matched == 'yes' }}>Matched to an application</option><option value="no" {{ 'selected' if f.matched == 'no' }}>Not matched</option></select>
+  <button class="btn">Filter</button>
+</form>
+<div class="card">
+<table>
+  <tr><th>Received</th><th>Type</th><th>Application</th><th>From / subject</th></tr>
+  {% for e in emails %}{% set a = apps.get(e.application_id) %}
+  <tr>
+    <td class="small muted" style="white-space:nowrap">{{ e.received_at|local }}</td>
+    <td><span class="pill st-{{ e.classification }}">{{ {'confirmed':'📨 confirmed','rejected':'❌ rejected','assessment':'📝 assessment','interview':'🎤 interview','offer':'🎉 offer'}.get(e.classification, 'other') }}</span></td>
+    <td>{% if a %}<a href="/applications/{{ a.id }}">{{ a.title }}</a><div class="small muted">{{ a.company }}</div>{% else %}<span class="small muted">not matched</span>{% endif %}</td>
+    <td><div class="small muted">{{ e.sender }}</div><b>{{ e.subject }}</b>
+      {% if e.summary %}<div class="small">{{ e.summary }}</div>{% endif %}
+      <details><summary class="small muted">Show email</summary><div class="small" style="white-space:pre-wrap">{{ e.snippet }}</div></details></td>
+  </tr>
+  {% else %}<tr><td colspan="4" class="empty">No emails yet. Use “Load last 30 days” to pull in replies you've already received.</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

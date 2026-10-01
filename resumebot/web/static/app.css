@@ -158,3 +158,4 @@ details.more .menu form { margin: 0; }
   font: inherit; padding: 7px 10px; border-radius: 6px; cursor: pointer; }
 .menu-item:hover, .menu-item:focus-visible { background: var(--surface-2); }
 .topbar.running { border-color: var(--good); background: color-mix(in srgb, var(--good) 8%, var(--surface)); }
+.kpi.link { text-decoration: none; color: inherit; } .kpi.link:hover { outline: 2px solid var(--accent); }

@@ -4,7 +4,9 @@
 <h1>Applications</h1>
 <p id="automation-connection" role="status" class="st-review"></p>
 <div id="automation-live">{% include '_automation.html' %}</div>
-<h2>Application history <span class="muted small">({{ apps|length }})</span></h2>
+<h2>{{ list_title or 'Application history' }} <span class="muted small">({{ apps|length }})</span>
+  {% if list_title %}<a class="small" href="/applications">show all</a>{% endif %}</h2>
+{% if f.when or f.submitted %}<p class="small"><a href="/applications?when=today">Today</a> · <a href="/applications?when=week">This week</a> · <a href="/applications?submitted=1">All submitted</a></p>{% endif %}
 <form class="filters" method="get">
   <input type="search" name="q" placeholder="Company or title" value="{{ f.q }}">
   <select name="source"><option value="">All sources</option>

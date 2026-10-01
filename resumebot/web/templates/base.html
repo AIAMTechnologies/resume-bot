@@ -15,6 +15,7 @@
     <a href="/" class="{{ 'on' if active == 'overview' }}">Overview</a>
     <a href="/applications" class="{{ 'on' if active in ('applications', 'application') }}">Applications</a>
     <a href="/jobs" class="{{ 'on' if active == 'jobs' }}">Jobs</a>
+    <a href="/emails" class="{{ 'on' if active == 'emails' }}">Emails</a>
     <a href="/review" class="{{ 'on' if active == 'review' }}">Review {% if pending_count %}<span class="badge">{{ pending_count }}</span>{% endif %}</a>
     <a href="/profile" class="{{ 'on' if active == 'profile' }}">Master profile</a>
     <a href="/settings" class="{{ 'on' if active == 'settings' }}">Settings</a>

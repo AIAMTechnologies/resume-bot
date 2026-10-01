@@ -19,6 +19,15 @@
       {{ app_actions(a) }}
     </div>
     <div class="card">
+      <h2>Emails about this application <span class="muted small">({{ emails|length }})</span></h2>
+      {% for e in emails %}
+      <div class="item"><span class="pill st-{{ e.classification }}">{{ e.classification }}</span>
+        <span class="small muted">{{ e.received_at|local }} · {{ e.sender }}</span>
+        <div><b>{{ e.subject }}</b></div>{% if e.summary %}<div class="small">{{ e.summary }}</div>{% endif %}
+        <details><summary class="small muted">Show email</summary><div class="small" style="white-space:pre-wrap">{{ e.snippet }}</div></details></div>
+      {% else %}<p class="empty">No replies yet.</p>{% endfor %}
+    </div>
+    <div class="card">
       <h2>Answers submitted</h2>
       <table>
         {% for q, v in a.answers.items() %}

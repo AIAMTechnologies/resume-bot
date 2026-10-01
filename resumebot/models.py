@@ -190,3 +190,19 @@ class Diagnostic(SQLModel, table=True):
     path: str = ''
     job_id: Optional[int] = Field(default=None, index=True)
     traceback: str = ''
+
+
+class Email(SQLModel, table=True):
+    """An email from the application inbox, linked to the application it's about (if any)."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    message_key: str = Field(index=True, unique=True)   # dedupe across polls/backfills
+    received_at: datetime = Field(default_factory=utcnow, index=True)
+    sender: str = ""
+    subject: str = ""
+    snippet: str = ""
+    classification: str = Field(default="other", index=True)  # confirmed|rejected|assessment|interview|offer|other
+    summary: str = ""
+    application_id: Optional[int] = Field(default=None, foreign_key="application.id", index=True)
+    job_id: Optional[int] = None
+    company: str = ""
