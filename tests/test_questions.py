@@ -138,3 +138,11 @@ def test_multi_answers_map_to_each_option(monkeypatch):
     monkeypatch.setattr(questions, "answers", lambda: {**base, "contact": {**base["contact"], "languages": ["English", "Urdu"]}})
     opts = ["Arabic", "English", "French", "Urdu"]
     assert from_rules(Field("Please select all the languages you speak fluently.", "radio", opts)) == "English, Urdu"
+
+
+
+async def test_marketing_optin_and_optional_address_line2():
+    assert from_rules(Field("Would you like to receive marketing communications about careers at SoFi?*", "radio",
+                            ["Yes", "No"])) == "No"
+    ans = Answerer("Engineer", "Acme", "desc")
+    assert await ans(Field("Home Address Line 2", "text", None, required=True)) == ""

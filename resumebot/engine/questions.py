@@ -59,7 +59,8 @@ RULES: list[tuple[str, str]] = [
     (r"linkedin", "contact.linkedin"),
     (r"github", "contact.github"),
     (r"portfolio|personal (web)?site|website", "__website"),
-    (r"address line 2|apartment|suite|unit number", "contact.address_line2"),
+    (r"(receive|subscribe|sign up for|opt.?in).{0,40}(marketing|newsletter|promotional|updates about careers)|marketing communications", "__no_marketing"),
+    (r"address line 2|apartment|suite|unit number", "__address_line2"),
     (r"address line 1|street address|^address$|mailing address|home address", "contact.address"),
     (r"languages? .{0,20}(speak|fluent)|fluent.{0,20}languages?|what languages", "__languages"),
     (r"(i )?(have read|agree|consent|acknowledge|understand).{0,120}(privacy|policy|guidelines|terms|notice|processing)", "__consent"),
@@ -98,6 +99,10 @@ def _special(key: str, question: str, job_location: str) -> str:
     us = is_us_location(question) or is_us_location(job_location)
     if re.search(r"\bcanada\b", question, re.I):
         us = False
+    if key == "__no_marketing":  # never opt in to marketing
+        return "No"
+    if key == "__address_line2":  # always optional; leave blank when there's none
+        return _a("contact.address_line2")
     if key == "__website":  # no portfolio → GitHub is the next best public site
         return _a("contact.portfolio") or _a("contact.github")
     if key == "__languages":
@@ -246,6 +251,10 @@ class Answerer:
         self.log: dict[str, dict[str, str]] = {}
 
     async def __call__(self, f: Field) -> str:
+        if norm_q(f.label).startswith(("address line 2", "home address line 2", "apartment", "suite")) and \
+                not _a("contact.address_line2"):
+            self.log[f.label] = {"answer": "", "origin": "left blank (optional)"}
+            return ""
         # Your own custom/approved answers beat the generic rules.
         for origin, fn in (("memory", lambda: from_memory(f)), ("config", lambda: from_rules(f, self.location))):
             val = fn()
