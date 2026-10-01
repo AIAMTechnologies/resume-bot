@@ -104,6 +104,21 @@ def test_queued_job_rechecked_before_applying():
         assert s.get(Job, bad.id).status == JobStatus.SKIPPED
 
 
+def test_queued_job_at_an_excluded_company_is_never_applied(monkeypatch):
+    from resumebot import db
+    from resumebot.config import settings
+    from resumebot.engine import pipeline
+    from resumebot.models import Job, JobStatus
+    from uuid import uuid4
+    monkeypatch.setattr(settings().targets, "exclude_companies", ["Cohere"])
+    job = db.save(Job(source="lever", external_id=uuid4().hex, company="Cohere", title="Security Engineer", url="u",
+                      location="Toronto, ON", status=JobStatus.QUEUED, match_score=99))
+    picked = pipeline.next_job("lever")
+    assert picked is None or picked.id != job.id
+    with db.session() as s:
+        assert s.get(Job, job.id).status == JobStatus.SKIPPED
+
+
 
 @pytest.mark.parametrize("title,ok", [
     ("Senior Security Engineer - Detection & Response", True), ("Staff CSIRT Analyst", True),

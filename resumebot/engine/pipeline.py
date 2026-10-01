@@ -205,6 +205,8 @@ def next_job(source_name: str) -> Job | None:
         ok, why = matcher.location_ok(job)
         if ok:
             ok, why = matcher.salary_ok(job)
+        if ok and matcher.norm(job.company) in {matcher.norm(c) for c in settings().targets.exclude_companies}:
+            ok, why = False, "excluded company"
         if not ok or any(k.lower() in job.title.lower() for k in settings().targets.exclude_title_keywords):
             job.status, job.status_reason = JobStatus.SKIPPED, f"no longer matches filters: {why if not ok else 'excluded title'}"
             db.save(job)
