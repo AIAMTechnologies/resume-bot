@@ -143,7 +143,9 @@ SCREENING_RULES: list[tuple[str, str]] = [
      r"been employed by|worked for .{0,40} before", "previously_employed_here"),
     (r"(member|contributor) .{0,30}(our )?communit", "community_contributor"),
     (r"\bai policy\b|policy on (the )?use of ai|use of ai .{0,40}application", "ai_policy_agreement"),
-    (r"(monday|mon) .{0,20}(friday|fri) .{0,40}\d|on.?call rotation|weekend shifts?", "fixed_shift_and_on_call"),
+    (r"(monday|mon) .{0,20}(friday|fri) .{0,40}\d|on.?call|weekends?( and|/| or) holidays?|weekend shifts?|"
+     r"(shifts?|rotation|schedule|hours) .{0,80}(comfortable|committed|willing|able|available)|"
+     r"(comfortable|committed|willing|able|available) .{0,60}(shifts?|rotation|evenings?|nights?|weekends?|overnight)", "fixed_shift_and_on_call"),
     (r"sexual orientation", "sexual_orientation"),
     (r"name pronunciation|pronounce your name", "name_pronunciation"),
     (r"^school( name)?$|^(university|college|institution)( name)?$|school you attended", "__school"),
