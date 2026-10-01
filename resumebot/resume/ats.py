@@ -43,6 +43,7 @@ ALIASES: dict[str, list[str]] = {
     "post-incident review": ["postmortem", "post-mortem", "post-incident reviews", "post-incident improvements"],
     "threat intelligence": ["cyber threat intelligence", "cti"],
     "information security": ["infosec"],
+    "digital forensics": ["forensics", "forensic investigation", "forensic incident report"],
     "bachelor's degree": ["bachelor", "bachelors", "bachelor of technology", "b.tech", "b.sc", "undergraduate degree"],
 }
 REQUIRED_SECTIONS = ["experience", "education", "skills"]
@@ -55,7 +56,7 @@ def normalize(text: str) -> str:
 
 
 def _variants(keyword: str) -> list[str]:
-    k = keyword.lower().strip()
+    k = keyword.lower().strip().replace("\u2019", "'").replace("\u2018", "'")
     out = {k}
     keys = {k, k[:-1]} if k.endswith("s") and len(k) > 3 else {k}  # "postmortems" → "postmortem"
     for canon, alts in ALIASES.items():
