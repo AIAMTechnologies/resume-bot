@@ -69,7 +69,7 @@ pacing:
       min_gap_seconds: 20
       max_gap_seconds: 60
       session_minutes: [45, 90]
-      break_minutes: [10, 30]
+      break_minutes: [2, 5]
       browse_only_ratio: 0.0
       challenge_cooldown_hours: 6
       discover_every_hours: 4
@@ -81,7 +81,7 @@ pacing:
       min_gap_seconds: 20
       max_gap_seconds: 60
       session_minutes: [45, 90]
-      break_minutes: [10, 30]
+      break_minutes: [2, 5]
       browse_only_ratio: 0.0
       challenge_cooldown_hours: 6
       discover_every_hours: 4
@@ -93,7 +93,7 @@ pacing:
       min_gap_seconds: 20
       max_gap_seconds: 60
       session_minutes: [45, 90]
-      break_minutes: [10, 30]
+      break_minutes: [2, 5]
       browse_only_ratio: 0.0
       challenge_cooldown_hours: 6
       discover_every_hours: 4

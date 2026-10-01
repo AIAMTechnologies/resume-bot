@@ -7,6 +7,32 @@
 # ATSs are handled automatically even if the company isn't listed here.
 
 greenhouse:
+  - anthropic
+  - roblox
+  - zscaler
+  - robinhood
+  - ripple
+  - scaleai
+  - mercury
+  - sentinellabs
+  - vercel
+  - upstart
+  - block
+  - lyft
+  - fastly
+  - gemini
+  - beyondtrust
+  - asana
+  - smartsheet
+  - betterment
+  - pagerduty
+  - discord
+  - cribl
+  - tines
+  - toast
+  - instacart
+  - pinterest
+  - wikimedia
   - okta
   - elastic
   - affirm
@@ -31,8 +57,12 @@ greenhouse:
   - stripe
   - databricks
   - figma
-lever: []
+lever:
+  - anchorage
+  - sysdig
 ashby:
+  - workos
+  - lightspeedhq
   - vanta
   - snowflake
   - socure
