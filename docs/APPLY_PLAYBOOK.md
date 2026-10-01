@@ -46,7 +46,24 @@ Biggest time sinks, in order: AI tailoring (~1–3 min) > unknown questions goin
 - Clicking "Apply for this Job" can be swallowed by a **cookie banner** → bot stayed on the description page
   ("submit button not found", Plaid). Now: verify URL has `/application`, else go there directly.
 
+- **Confirmation wording is the company's own** (Writer: "Success — Thanks, got it!") → was logged "no confirmation;
+  unknown state" though submitted. The bot now also accepts Ashby's success banner
+  (`.ashby-application-form-success-container`), whatever it says.
+- **A typed answer can be wiped** by the resume parser finishing late (OpenAI: "Missing entry for required field:
+  Phone Number"). `_restore_wiped` re-scans before submit and types cleared required answers back.
+- **"Page not found" on a job that is still in the feed** = the company turned off its hosted Ashby pages (Cursor
+  applies on cursor.com). Becomes a manual card, not a failure.
+
 ### All portals
+- **Human checks are handed to you, never solved:** Greenhouse's emailed code *and* a CAPTCHA puzzle that pops up
+  after Submit (hCaptcha on Lever — Sysdig). The tab comes to the front, Telegram pings "🔐", the bot waits
+  `HANDOFF_MINUTES` and records the submission when the confirmation appears.
+- **Closed postings** (link lands on "Current openings at …", `?error=true`, "job not found") → status `closed`,
+  not `failed` (Stripe Abuse Research Engineer).
+- **Radios/checkboxes without ids** (Lever: one shared `name`) are now targeted by `name` + `value`; before, the
+  first option was clicked whatever the answer was.
+- **A group made only of consent boxes** (Gemini: privacy statement + Strider background checks) is decided box by
+  box from `application_consent` / `screening:` answers, not by the AI.
 - **Cookie banners:** `dismiss_cookies()` clicks "Necessary only / Reject all / Decline" (never Accept All).
 - **Confirmation wording varies** — Tailscale said "Thanks so much for applying… successfully been received" and was
   marked failed though submitted. Success regex widened. If a job shows "no confirmation; unknown state",
@@ -85,6 +102,9 @@ Jobs page: a "❓ Answer N questions" notice opens the answer form inline.
 | Outside business activity (Okta) | Yes — Q4GEMS runs alongside Gore Mutual |
 | Location preference list without Toronto | Remote |
 | Ashby "right to work basis" (BeyondTrust) | location-dependent: Canada → permanent; don't save as memory |
+| "Have you previously been employed at X?" with sentence options (Affirm) | `previously_employed_here` → the "I have not…" option (fixed 2026-10-01) |
+| "From which country will you work? select CITY and COUNTRY" (Kraken) | `__work_location` (fixed 2026-10-01) |
+| "Have you used a Kraken product in the last six months?" | ask you |
 
 ## Greenhouse email security code
 **Update 2026-10-01 evening:** even one apply per ~10 min got a code every time — Greenhouse now flags this
@@ -122,3 +142,7 @@ unknown state" and the screenshot shows the Security code boxes.
   settings/companies are lru_cached). Greenhouse stays single-lane with the code hand-off — not tuned to evade the check.
 - 2026-10-01 ~18:00: Greenhouse switched to 3 parallel lanes (SINGLE_LANE_SOURCES empty), gaps 30–60 s, cap 45 —
   you enter each emailed code in its tab. Pause Greenhouse when away or each tab stalls 20 min then fails.
+- 2026-10-01 ~18:00–18:10: one session only. +Upstart, 1Password ×2, OpenAI (Toronto weekend), SoFi, Zscaler TRE; Writer
+  was already submitted (screenshot). Fixed: Ashby success banner, CAPTCHA hand-off, closed postings, wiped phone
+  number, id-less radios, consent groups, Affirm/Kraken question wording. To restart without killing forms: turn on
+  global pause, wait until no job is `applying`, then kill by PID and start again (startup clears the pause).

@@ -158,3 +158,17 @@ def test_how_did_you_hear_matches_where_the_job_was_found():
     assert heard_about(q, "linkedin") == "LinkedIn (Job Posting)"
     assert heard_about(Field("How did you hear about us?", "select", ["Referral", "Other"]), "ashby") == "Other"
     assert heard_about(Field("Why do you want to work here?"), "ashby") == ""
+
+
+def test_previously_employed_no_picks_the_have_not_option(monkeypatch):
+    from resumebot.engine import questions
+    monkeypatch.setattr(questions, "answers", lambda: {"screening": {"previously_employed_here": "auto"}})
+    options = ["I have not previously been employed at Affirm", "I have been employed at Affirm as a full-time employee",
+               "I have been employed at Affirm as a contractor"]
+    f = Field("Have you previously been employed at Affirm for any length of time?*", "select", options, True)
+    assert questions.screening_answer(f, "Affirm") == (True, options[0])
+
+
+def test_which_country_will_you_work_from_is_a_work_location_question():
+    label = "From which country will you work?Please select CITY and COUNTRY from the options"
+    assert from_rules(Field(label)) == "Toronto, ON"

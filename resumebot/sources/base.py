@@ -73,6 +73,10 @@ class ManualRequired(Exception):
     """This application must be done by a human (e.g. needs an account)."""
 
 
+class PostingClosed(Exception):
+    """The posting was taken down (the link lands on the company's job list or a "not found" page)."""
+
+
 class Source(ABC):
     name: str = ""
     uses_browser_for_discovery: bool = False

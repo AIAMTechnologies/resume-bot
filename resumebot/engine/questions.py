@@ -71,7 +71,7 @@ RULES: list[tuple[str, str]] = [
     (r"^city|current city|^current location( city)?$|what city|city of residence|where do you (currently )?(live|reside)", "contact.city"),
     (r"where are you (currently )?(located|based)|(current )?location of residence|location where you (permanently )?reside|where (are you|do you) (currently )?(located|based|live)|^current (city|location)", "__city_region"),
     # Where you'd work (not where you live): you'll move to your preferred city for a US job.
-    (r"where (do|will|would) you plan (on|to) (work|working) from|^work location$|"
+    (r"where (do|will|would) you plan (on|to) (work|working) from|^work location$|from which (city|country) will you work|"
      r"preferred (work )?(location|city|office)|where would you (like|prefer) to (work|be based)", "__work_location"),
     (r"province|\bstate\b", "contact.province_state"),
     (r"^country", "contact.country"),
@@ -167,7 +167,8 @@ SCREENING_RULES: list[tuple[str, str]] = [
     (r"^discipline$|field of study|^major$|area of study", "__discipline"),
 ]
 AGREEMENT_KEYS = {"agree_to_arbitration", "confidentiality_agreement", "third_party_background_screening", "ai_policy_agreement"}
-NONE_OPTION_RE = re.compile(r"^(n/?a|none|not applicable)\b|^no\b|do not hold|don.t hold", re.I)
+NONE_OPTION_RE = re.compile(r"^(n/?a|none|not applicable)\b|^no\b|do not hold|don.t hold|"
+                            r"^i (have|am|do|did|was) (not|never)\b|^i (haven|don|didn|wasn).t\b|^never\b", re.I)
 
 
 def _employers() -> list[str]:

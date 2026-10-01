@@ -24,7 +24,7 @@ from ..notify.telegram import esc
 from ..profile.ingest import target_titles
 from ..resume import tailor as tailoring
 from ..sources import SOURCES
-from ..sources.base import ApplyContext, JobData, ManualRequired, Materials, NeedsInput
+from ..sources.base import ApplyContext, JobData, ManualRequired, Materials, NeedsInput, PostingClosed
 from ..sources.routing import Rerouted, route
 from . import matcher, review
 from .pacing import Gate
@@ -447,6 +447,10 @@ async def _apply_job(job: Job, dry_run: bool = False, draft_version: str | None 
         db.log(f"Rerouted {job.title} @ {job.company} to {route(rr.url).source}" + ("" if new else " (already known)"),
                source=job.source, kind="apply", job_id=job.id)
         app = None
+    except PostingClosed:
+        job.status, job.status_reason = JobStatus.CLOSED, "posting no longer available"
+        app = None
+        db.log(f"Posting closed: {job.title} @ {job.company}", source=job.source, kind="apply", job_id=job.id)
     except ManualRequired as mr:
         job.status, job.status_reason = JobStatus.MANUAL, str(mr)
         await review.manual_review(job, str(mr), str(materials.resume_pdf), materials.cover_letter)

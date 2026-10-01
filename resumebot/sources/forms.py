@@ -68,7 +68,12 @@ SCAN_JS = r"""
   const out = []; const groups = {}; let n = start;
   const stableSelector = el => {
     if (el.id) return `#${CSS.escape(el.id)}`;
-    if (el.name) return `${el.tagName.toLowerCase()}[name="${CSS.escape(el.name)}"]`;
+    if (el.name) {
+      // Radios/checkboxes of one question share a name: the value tells them apart.
+      const byName = `${el.tagName.toLowerCase()}[name="${CSS.escape(el.name)}"]`;
+      return document.querySelectorAll(byName).length > 1 && el.getAttribute('value')
+        ? `${byName}[value="${CSS.escape(el.getAttribute('value'))}"]` : byName;
+    }
     const entry = el.closest('[data-field-path]');
     if (entry) return `[data-field-path="${CSS.escape(entry.getAttribute('data-field-path'))}"] ${el.tagName.toLowerCase()}`;
     return `[data-rb-id="${el.getAttribute('data-rb-id')}"]`;
@@ -152,6 +157,20 @@ def _consent_answer(label: str) -> bool | None:
     if not answer:
         return None
     return bool(re.match(r"\s*(check|yes|y\b|agree|i agree|ok|true)", answer, re.I))
+
+
+def _group_consent(option: str, consent_ok: bool, company: str) -> bool | None:
+    """One box in a group of consent boxes: True = tick, False = leave, None = not a consent you've decided."""
+    from ..engine.questions import key_is_legal, screening_answer
+    if LEGAL_WAIVER_RE.search(option) or key_is_legal(option):
+        agree = _consent_answer(option)
+        if agree is None:
+            matched, val = screening_answer(Field(option, "checkbox", ["Yes", "No"]), company)
+            agree = True if matched and val.lower().startswith("y") else None
+        return agree
+    if CONSENT_RE.search(option):
+        return True if consent_ok else _consent_answer(option)
+    return None
 
 
 def _file_role(label: str, name: str, selector: str = "") -> str:
@@ -314,6 +333,16 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
                 if kind in ("radio", "checkgroup"):
                     if f.get("checked"):
                         continue
+                    if kind == "checkgroup":
+                        # A group made only of consent boxes ("By clicking this box … you consent to …"):
+                        # each box is decided like a single consent checkbox, not picked by the AI.
+                        agreed = [_group_consent(o, consent_ok, ctx.job.company if ctx.job else "") for o in f["options"]]
+                        if all(a is not None for a in agreed):
+                            picks = [o for o, a in zip(f["options"], agreed) if a]
+                            for pick in picks:
+                                await ctx.human.click(await _clickable(ctx, _locator(ctx, f, f["options"].index(pick))))
+                            filled[label] = ", ".join(picks)
+                            continue
                     answer = await ctx.answer(Field(label, "radio", f["options"], f["required"],
                                                     (f.get("selectors") or [""])[0]))
                     if not answer:
@@ -400,10 +429,31 @@ async def fill_form(ctx: ApplyContext, root_selector: str = "body") -> dict[str,
                     pending.append((label.rstrip("* ").strip() or "A required field", "", f.get("options") or []))
                 else:
                     db.log(f"Skipped optional field that wouldn't respond: {label[:80]}", level="warning", kind="apply")
+    await _restore_wiped(ctx, root_selector, filled)
     if pending:
         unique = {q: (q, proposed, options) for q, proposed, options in reversed(pending)}
         raise NeedsInput([unique[q] for q in dict.fromkeys(q for q, _, _ in pending)])
     return filled
+
+
+TYPED_KINDS = {"input", "text", "email", "tel", "url", "number", "textarea"}
+
+
+async def _restore_wiped(ctx: ApplyContext, root_selector: str, filled: dict[str, str]) -> None:
+    """A late resume-parse can blank a box the bot already typed in (Ashby: "Missing entry for required
+    field: Phone Number"). Before submitting, type those answers back."""
+    try:
+        fields = await _scan(ctx, root_selector, 50_000)
+    except Exception:  # noqa: BLE001 — page navigating; submit will report what's missing
+        return
+    for f in fields:
+        label = f.get("label", "")
+        if f["kind"] in TYPED_KINDS and f.get("required") and not f.get("value") and filled.get(label):
+            try:
+                await ctx.human.type(_locator(ctx, f), filled[label], typos=False)
+                db.log(f"Re-typed an answer the form had cleared: {label[:60]}", kind="apply")
+            except PlaywrightTimeout:
+                pass
 
 
 async def click_button(ctx: ApplyContext, *names: str, root: str = "body") -> bool:

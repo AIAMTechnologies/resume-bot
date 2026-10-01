@@ -15,7 +15,7 @@ import httpx
 from .. import db
 from ..browser import guards
 from ..config import companies
-from .base import ApplyContext, ApplyResult, JobData, Source, strip_html
+from .base import ApplyContext, ApplyResult, JobData, ManualRequired, PostingClosed, Source, strip_html
 from .forms import click_button, fill_form, page_has_text
 
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -38,6 +38,14 @@ def _ts(value) -> datetime | None:
 # Portal asks for a code it emailed you "to confirm you're a human" (Greenhouse). You enter it, not the bot.
 SECURITY_CODE_RE = r"verification code was sent|enter the \d+.character code|security code"
 HANDOFF_MINUTES = 20
+
+# A removed posting lands on the company's job list (Greenhouse adds ?error=true) or a "not found" page.
+CLOSED_URL_RE = re.compile(r"[?&]error=true\b")
+CLOSED_RE = re.compile(r"current openings at|job (you are looking for|posting you.re looking for) (is no longer open|might have closed)|"
+                       r"(job|position|posting|role) (is|has been) (no longer available|filled)|"
+                       r"no longer accepting applications|job not found|couldn.t find anything here", re.I)
+# Companies word their own Ashby confirmation ("Thanks, got it!"); the banner around it is always this.
+SUCCESS_SELECTOR = ".ashby-application-form-success-container"
 
 COOKIE_DECLINE_RE = re.compile(r"^(necessary only|only necessary|reject( all)?|decline( all)?|deny|essential only|use necessary cookies only)$", re.I)
 
@@ -82,7 +90,25 @@ class _BoardSource(Source):
         await ctx.human.pause(1.5, 3.5)
         await dismiss_cookies(ctx)
         await guards.check_page(ctx.page)
+        if CLOSED_URL_RE.search(ctx.page.url) or await page_has_text(ctx, CLOSED_RE.pattern, timeout=1):
+            raise PostingClosed(ctx.page.url)
+        if await page_has_text(ctx, r"page you requested was not found", timeout=1):
+            # Still listed in the board's feed, but the company turned its hosted pages off (Cursor on Ashby).
+            raise ManualRequired("this company doesn't take applications on its hosted job page — apply on its careers site")
         await ctx.human.read(ctx.job.description)
+
+    async def _confirmed(self, ctx: ApplyContext, success: str, timeout: float) -> bool:
+        """The confirmation showed up: its wording, or the portal's success banner."""
+        for _ in range(max(1, int(timeout / 2))):
+            if await page_has_text(ctx, success, timeout=2):
+                return True
+            try:
+                banner = ctx.page.locator(SUCCESS_SELECTOR)
+                if await banner.count() and await banner.first.is_visible():
+                    return True
+            except Exception:  # noqa: BLE001 — page navigating
+                pass
+        return False
 
     async def _submit_and_confirm(self, ctx: ApplyContext, submit_names: list[str], success: str) -> ApplyResult:
         if ctx.dry_run:
@@ -91,35 +117,42 @@ class _BoardSource(Source):
         if not await click_button(ctx, *submit_names):
             return ApplyResult(False, "submit button not found")
         await ctx.human.pause(2, 4)
-        await guards.check_page(ctx.page)
-        if await page_has_text(ctx, success, timeout=25):
+        if await self._confirmed(ctx, success, timeout=25):
             return ApplyResult(True, "confirmation page seen")
         if await page_has_text(ctx, SECURITY_CODE_RE, timeout=3):
-            return await self._wait_for_you(ctx, success)
+            return await self._wait_for_you(ctx, success, "emailed a security code to your application Gmail",
+                                            "type the code there and click <b>Submit application</b>")
+        try:
+            # A picture puzzle (hCaptcha on Lever) can pop up after Submit. The bot never solves these.
+            await guards.check_page(ctx.page)
+        except guards.ChallengeDetected:
+            return await self._wait_for_you(ctx, success, "is showing a CAPTCHA puzzle",
+                                            "solve the puzzle there (the form submits itself afterwards)")
         # Validation errors keep us on the form.
-        errors = await ctx.page.locator("[class*=error i]:visible, [role=alert]:visible").all_inner_texts()
+        errors = await ctx.page.locator("[class*=error i]:visible, [role=alert]:visible, "
+                                        ".ashby-application-form-failure-container:visible, "
+                                        ".ashby-application-form-blocked-application-container:visible").all_inner_texts()
         errors = [e.strip() for e in errors if e.strip()]
         return ApplyResult(False, "no confirmation; " + ("; ".join(errors[:5]) if errors else "unknown state"))
 
-    async def _wait_for_you(self, ctx: ApplyContext, success: str) -> ApplyResult:
-        """The portal emailed a "confirm you're a human" code. That check is yours to complete: the bot
-        never reads or types the code. It leaves the filled form open, tells you, and waits."""
+    async def _wait_for_you(self, ctx: ApplyContext, success: str, what: str, todo: str) -> ApplyResult:
+        """The portal wants proof of a human (an emailed code, a CAPTCHA). That check is yours to complete:
+        the bot never reads, types, or solves it. It leaves the filled form open, tells you, and waits."""
         from ..notify import telegram
         job = ctx.job
         try:
             await ctx.page.bring_to_front()
         except Exception:  # noqa: BLE001
             pass
-        db.log(f"🔐 Waiting for you: enter the emailed security code for {job.title} @ {job.company} "
-               f"in the open Chrome tab, then click Submit ({HANDOFF_MINUTES} min)",
+        db.log(f"🔐 Waiting for you: {self.name.title()} {what} for {job.title} @ {job.company} — "
+               f"in the open Chrome tab, {re.sub(r'<[^>]+>', '', todo)} ({HANDOFF_MINUTES} min)",
                level="warning", source=self.name, kind="apply", job_id=job.id)
         await telegram.send(
-            f"🔐 <b>{job.company}</b> — {job.title}\n{self.name.title()} emailed a security code to your application "
-            f"Gmail. The form is filled and open in Chrome on your Mac: type the code there and click "
-            f"<b>Submit application</b>. I'll wait {HANDOFF_MINUTES} minutes.")
-        if await page_has_text(ctx, success, timeout=HANDOFF_MINUTES * 60):
-            return ApplyResult(True, "submitted after you entered the security code")
-        return ApplyResult(False, f"security code not entered within {HANDOFF_MINUTES} min")
+            f"🔐 <b>{job.company}</b> — {job.title}\n{self.name.title()} {what}. The form is filled and open in "
+            f"Chrome on your Mac: {todo}. I'll wait {HANDOFF_MINUTES} minutes.")
+        if await self._confirmed(ctx, success, timeout=HANDOFF_MINUTES * 60):
+            return ApplyResult(True, "submitted after you completed the human check")
+        return ApplyResult(False, f"human check not completed within {HANDOFF_MINUTES} min")
 
 
 class Greenhouse(_BoardSource):
